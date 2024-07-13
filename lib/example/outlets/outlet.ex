@@ -1,5 +1,6 @@
 defmodule Example.Outlet do
   use Ash.Domain
+  # domain
 
   domain do
     description """
