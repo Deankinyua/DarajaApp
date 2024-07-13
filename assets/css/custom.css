@@ -1,0 +1,13 @@
+.bgImg1 {
+  min-height: 100vh;
+  background: url(/images/team_discuss2.jpg) no-repeat center fixed;
+  background-size: cover;
+  flex-direction: row;
+  border: 3px solid yellow;
+}
+
+.overlay1 {
+  min-height: 100vh;
+  border-image: fill 1
+    linear-gradient(hsla(246, 74%, 16%, 0.4), hsla(0, 60%, 51%, 0.35));
+}
