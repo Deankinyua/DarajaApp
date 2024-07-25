@@ -39,6 +39,7 @@ defmodule Example.Activation.Promoter do
 
     create :create do
       # accept name as input
+      # * accept behaves like cast/3 in ecto changesets
       accept [:name, :id_num]
     end
 

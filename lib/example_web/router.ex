@@ -36,6 +36,13 @@ defmodule ExampleWeb.Router do
     ash_authentication_live_session :authentication_required,
       on_mount: {ExampleWeb.LiveUserAuth, :live_user_required} do
       live "/promoters", BaLive
+
+      live "/regions", RegionLive.Index, :index
+      live "/regions/new", RegionLive.Index, :new
+      live "/regions/:id/edit", RegionLive.Index, :edit
+
+      live "/regions/:id", RegionLive.Show, :show
+      live "/regions/:id/show/edit", RegionLive.Show, :edit
       # live "/forms", FormLive, :index
       # live "/forms/new", FormLive, :new
       # live "/forms/:id/edit", FormLive, :edit
