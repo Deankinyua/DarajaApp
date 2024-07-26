@@ -5,7 +5,7 @@ defmodule ExampleWeb.RegionLive.Show do
   def render(assigns) do
     ~H"""
     <.header>
-      Region <%= @region.id %>
+      Region <%= @region.name %>
       <:subtitle>This is a region record from your database.</:subtitle>
 
       <:actions>
@@ -16,7 +16,7 @@ defmodule ExampleWeb.RegionLive.Show do
     </.header>
 
     <.list>
-      <:item title="Id"><%= @region.id %></:item>
+      <:item title="Name"><%= @region.name %></:item>
     </.list>
 
     <.back navigate={~p"/regions"}>Back to regions</.back>

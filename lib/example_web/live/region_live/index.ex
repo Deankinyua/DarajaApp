@@ -18,7 +18,7 @@ defmodule ExampleWeb.RegionLive.Index do
       rows={@streams.regions}
       row_click={fn {_id, region} -> JS.navigate(~p"/regions/#{region}") end}
     >
-      <:col :let={{_id, region}} label="Id"><%= region.id %></:col>
+      <:col :let={{_id, region}} label="Name"><%= region.name %></:col>
 
       <:action :let={{_id, region}}>
         <div class="sr-only">
