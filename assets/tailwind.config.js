@@ -6,10 +6,13 @@ const fs = require("fs");
 const path = require("path");
 
 module.exports = {
+  darkMode: ["class", '[data-mode="dark"]'],
   content: [
     "./js/**/*.js",
     "../lib/example_web.ex",
     "../lib/example_web/**/*.*ex",
+    "../lib/example_web/**/**/*.*ex",
+
     "../deps/tremorx/lib/components/**/*.ex",
     "../deps/tremorx/lib/js/*.js",
     "../deps/ash_authentication_phoenix/**/*.*ex",
@@ -105,7 +108,6 @@ module.exports = {
       },
     },
   },
-
   safelist: [
     {
       pattern:
@@ -149,9 +151,9 @@ module.exports = {
     { pattern: /^ring-/ },
     { pattern: /^justify-/ },
   ],
-
   plugins: [
     require("@tailwindcss/forms"),
+    require("@tailwindcss/typography"),
     // Allows prefixing tailwind classes with LiveView classes to add rules
     // only when LiveView classes are applied, for example:
     //
@@ -183,13 +185,12 @@ module.exports = {
     // See your `CoreComponents.icon/1` for more information.
     //
     plugin(function ({ matchComponents, theme }) {
-      let iconsDir = path.join(__dirname, "../deps/heroicons/optimized");
+      let iconsDir = path.join(__dirname, "./vendor/heroicons/optimized");
       let values = {};
       let icons = [
         ["", "/24/outline"],
         ["-solid", "/24/solid"],
         ["-mini", "/20/solid"],
-        ["-micro", "/16/solid"],
       ];
       icons.forEach(([suffix, dir]) => {
         fs.readdirSync(path.join(iconsDir, dir)).forEach((file) => {
@@ -204,12 +205,6 @@ module.exports = {
               .readFileSync(fullPath)
               .toString()
               .replace(/\r?\n|\r/g, "");
-            let size = theme("spacing.6");
-            if (name.endsWith("-mini")) {
-              size = theme("spacing.5");
-            } else if (name.endsWith("-micro")) {
-              size = theme("spacing.4");
-            }
             return {
               [`--hero-${name}`]: `url('data:image/svg+xml;utf8,${content}')`,
               "-webkit-mask": `var(--hero-${name})`,
@@ -218,8 +213,8 @@ module.exports = {
               "background-color": "currentColor",
               "vertical-align": "middle",
               display: "inline-block",
-              width: size,
-              height: size,
+              width: theme("spacing.5"),
+              height: theme("spacing.5"),
             };
           },
         },

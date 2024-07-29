@@ -43,6 +43,13 @@ defmodule ExampleWeb.Router do
 
       live "/regions/:id", RegionLive.Show, :show
       live "/regions/:id/show/edit", RegionLive.Show, :edit
+
+      live "/outlets", ShopLive.Index, :index
+      live "/outlets/new", ShopLive.Index, :new
+      live "/outlets/:id/edit", ShopLive.Index, :edit
+
+      live "/outlets/:id", ShopLive.Show, :show
+      live "/outlets/:id/show/edit", ShopLive.Show, :edit
       # live "/forms", FormLive, :index
       # live "/forms/new", FormLive, :new
       # live "/forms/:id/edit", FormLive, :edit
