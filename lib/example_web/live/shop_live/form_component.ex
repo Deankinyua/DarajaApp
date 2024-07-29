@@ -5,7 +5,6 @@ defmodule ExampleWeb.ShopLive.FormComponent do
   alias Tremorx.Components.Input
   alias Tremorx.Components.Text
   alias Tremorx.Components.Select
-  # alias Tremorx.Components.Tab
 
   @impl true
   def render(assigns) do
@@ -73,9 +72,6 @@ defmodule ExampleWeb.ShopLive.FormComponent do
      |> assign_form()}
   end
 
-  # def update(assigns, socket) do
-  #   {:ok, socket |> assign(assigns) |> fetch_regions()}
-  # end
 
   defp fetch_regions(socket) do
     query_results =
