@@ -5,6 +5,7 @@ defmodule ExampleWeb.ShopLive.FormComponent do
   alias Tremorx.Components.Input
   alias Tremorx.Components.Text
   alias Tremorx.Components.Select
+  alias Tremorx.Components.Button
 
   @impl true
   def render(assigns) do
@@ -15,18 +16,18 @@ defmodule ExampleWeb.ShopLive.FormComponent do
         <:subtitle>Use this form to manage shop records in your database.</:subtitle>
       </.header>
 
-      <.simple_form for={@form} phx-target={@myself} phx-change="validate" phx-submit="save">
+      <.form for={@form} phx-target={@myself} phx-change="validate" phx-submit="save">
         <Layout.col class="space-y-1.5">
           <label for="name_field">
             <Text.text class="text-tremor-content">
-              Name
+              Shop Name
             </Text.text>
           </label>
 
           <Input.text_input
             id="name"
             name={@form[:name].name}
-            placeholder="Enter value"
+            placeholder="Shop Name..."
             type="text"
             field={@form[:name]}
             value={@form[:name].value}
@@ -37,7 +38,7 @@ defmodule ExampleWeb.ShopLive.FormComponent do
         <Layout.col class="space-y-1.5">
           <label for="region[region_id]">
             <Text.text class="text-tremor-content">
-              Region
+              Region Name
             </Text.text>
           </label>
 
@@ -46,7 +47,6 @@ defmodule ExampleWeb.ShopLive.FormComponent do
             name={@form[:region_id].name}
             placeholder="Select Region..."
             value={@form[:region_id].value}
-            phx-update="ignore"
             required={true}
           >
             <:item :for={%{id: _id, name: name} <- @regions}>
@@ -55,10 +55,10 @@ defmodule ExampleWeb.ShopLive.FormComponent do
           </Select.select>
         </Layout.col>
 
-        <:actions>
-          <.button phx-disable-with="Saving...">Save Shop</.button>
-        </:actions>
-      </.simple_form>
+        <Button.button type="submit" size="xl" class="mt-2 w-min" phx-disable-with="Saving...">
+          Create Shop
+        </Button.button>
+      </.form>
     </div>
     """
   end
@@ -71,7 +71,6 @@ defmodule ExampleWeb.ShopLive.FormComponent do
      |> fetch_regions()
      |> assign_form()}
   end
-
 
   defp fetch_regions(socket) do
     query_results =
