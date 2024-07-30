@@ -79,7 +79,11 @@ defmodule ExampleWeb.ShopLive.FormComponent do
         <% end %>
 
         <Button.button type="submit" size="xl" class="mt-2 w-min" phx-disable-with="Saving...">
-          Create Shop
+          <%= if @form.source.type == :update do %>
+            Update Shop
+          <% else %>
+            Create Shop
+          <% end %>
         </Button.button>
       </.form>
     </div>
@@ -114,11 +118,8 @@ defmodule ExampleWeb.ShopLive.FormComponent do
   end
 
   def handle_event("save", %{"shop" => shop_params}, socket) do
-    # %{"name" => _name, "region_id" => region_id} = shop_params
-    # region_id = String.to_atom(region_id)
-
-    # shop_params = Map.merge(shop_params, %{"region_id" => region_id})
     dbg(shop_params)
+    dbg(socket.assigns.form.source.type)
 
     case AshPhoenix.Form.submit(socket.assigns.form, params: shop_params) do
       {:ok, shop} ->
@@ -161,17 +162,3 @@ defmodule ExampleWeb.ShopLive.FormComponent do
     end
   end
 end
-
-# <:item :for={%{id: _id, name: name} <- @regions}>
-#   <%= name %>
-# </:item>
-
-# <Select.select
-#   id="outlet[region_id]"
-#   name={@form[:region_id].name}
-#   placeholder="Select Region..."
-#   value={@form[:region_id].value}
-#   required={true}
-# >
-
-# </Select.select>
