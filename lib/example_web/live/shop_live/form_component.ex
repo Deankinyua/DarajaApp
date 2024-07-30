@@ -4,7 +4,7 @@ defmodule ExampleWeb.ShopLive.FormComponent do
   alias Tremorx.Components.Layout
   alias Tremorx.Components.Input
   alias Tremorx.Components.Text
-  alias Tremorx.Components.Select
+  # alias Tremorx.Components.Select
   alias Tremorx.Components.Button
 
   @impl true
@@ -17,33 +17,66 @@ defmodule ExampleWeb.ShopLive.FormComponent do
       </.header>
 
       <.form :let={f} for={@form} phx-target={@myself} phx-change="validate" phx-submit="save">
-        <Layout.col class="space-y-1.5">
-          <label for="name_field">
-            <Text.text class="text-tremor-content">
-              Shop Name
-            </Text.text>
-          </label>
+        <%= if @form.source.type == :create do %>
+          <Layout.col class="space-y-1.5">
+            <label for="name_field">
+              <Text.text class="text-tremor-content">
+                Shop Name
+              </Text.text>
+            </label>
 
-          <Input.text_input
-            id="name"
-            name={@form[:name].name}
-            placeholder="Shop Name..."
-            type="text"
-            field={@form[:name]}
-            value={@form[:name].value}
-            required="true"
-          />
-        </Layout.col>
+            <Input.text_input
+              id="name"
+              name={@form[:name].name}
+              placeholder="Shop Name..."
+              type="text"
+              field={@form[:name]}
+              value={@form[:name].value}
+              required="true"
+            />
+          </Layout.col>
 
-        <Layout.col class="space-y-1.5">
-          <label for="region[region_id]">
-            <Text.text class="text-tremor-content">
-              Region Name
-            </Text.text>
-          </label>
+          <Layout.col class="space-y-1.5">
+            <label for="region[region_id]">
+              <Text.text class="text-tremor-content">
+                Region Name
+              </Text.text>
+            </label>
 
-          <.input type="select" field={f[:region_id]} options={@region_selector} />
-        </Layout.col>
+            <.input type="select" field={f[:region_id]} options={@region_selector} />
+          </Layout.col>
+        <% end %>
+
+        <%= if @form.source.type == :update do %>
+          <Layout.col class="space-y-1.5">
+            <label for="name_field">
+              <Text.text class="text-tremor-content">
+                Shop Name
+              </Text.text>
+            </label>
+
+            <Input.text_input
+              disabled
+              id="name"
+              name={@form[:name].name}
+              placeholder="Shop Name..."
+              type="text"
+              field={@form[:name]}
+              value={@form[:name].value}
+              required="true"
+            />
+          </Layout.col>
+
+          <Layout.col class="space-y-1.5">
+            <label for="region[region_id]">
+              <Text.text class="text-tremor-content">
+                Region Name
+              </Text.text>
+            </label>
+
+            <.input type="select" field={f[:region_id]} options={@region_selector} />
+          </Layout.col>
+        <% end %>
 
         <Button.button type="submit" size="xl" class="mt-2 w-min" phx-disable-with="Saving...">
           Create Shop
@@ -81,7 +114,11 @@ defmodule ExampleWeb.ShopLive.FormComponent do
   end
 
   def handle_event("save", %{"shop" => shop_params}, socket) do
-    dbg(socket.assigns.regions)
+    # %{"name" => _name, "region_id" => region_id} = shop_params
+    # region_id = String.to_atom(region_id)
+
+    # shop_params = Map.merge(shop_params, %{"region_id" => region_id})
+    dbg(shop_params)
 
     case AshPhoenix.Form.submit(socket.assigns.form, params: shop_params) do
       {:ok, shop} ->

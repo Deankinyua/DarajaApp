@@ -47,7 +47,8 @@ defmodule Example.Outlet.Shop do
 
     create :new do
       accept [
-        :name
+        :name,
+        :region_id
       ]
 
       primary? true
@@ -60,7 +61,7 @@ defmodule Example.Outlet.Shop do
     end
 
     update :update_region do
-      accept [:name]
+      accept [:name, :region_id]
       primary? true
     end
 
