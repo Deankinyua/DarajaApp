@@ -1,11 +1,14 @@
 defmodule ExampleWeb.ShopLive.Show do
   use ExampleWeb, :live_view
 
+  alias Example.Outlet
+  alias Example.Outlet.Region
+
   @impl true
   def render(assigns) do
     ~H"""
     <.header>
-      Shop <%= @shop.id %>
+      <%= @shop.name %>
       <:subtitle>This is a shop record from your database.</:subtitle>
 
       <:actions>
@@ -16,7 +19,10 @@ defmodule ExampleWeb.ShopLive.Show do
     </.header>
 
     <.list>
-      <:item title="Id"><%= @shop.id %></:item>
+      <:item title="Name"><%= @shop.name %></:item>
+      <:item title="Region">
+        <%= get_name_of_resource_by_id(@shop.region_id, Outlet, Region) %>
+      </:item>
     </.list>
 
     <.back navigate={~p"/outlets"}>Back to outlets</.back>
@@ -51,6 +57,11 @@ defmodule ExampleWeb.ShopLive.Show do
      socket
      |> assign(:page_title, page_title(socket.assigns.live_action))
      |> assign(:shop, Ash.get!(Example.Outlet.Shop, id, actor: socket.assigns.current_user))}
+  end
+
+  def get_name_of_resource_by_id(id, api, resource) do
+    record = api.get!(resource, id)
+    record.name
   end
 
   defp page_title(:show), do: "Show Shop"
