@@ -16,7 +16,7 @@ defmodule ExampleWeb.ShopLive.FormComponent do
         <:subtitle>Use this form to manage shop records in your database.</:subtitle>
       </.header>
 
-      <.form for={@form} phx-target={@myself} phx-change="validate" phx-submit="save">
+      <.form :let={f} for={@form} phx-target={@myself} phx-change="validate" phx-submit="save">
         <Layout.col class="space-y-1.5">
           <label for="name_field">
             <Text.text class="text-tremor-content">
@@ -42,17 +42,7 @@ defmodule ExampleWeb.ShopLive.FormComponent do
             </Text.text>
           </label>
 
-          <Select.select
-            id="outlet[region_id]"
-            name={@form[:region_id].name}
-            placeholder="Select Region..."
-            value={@form[:region_id].value}
-            required={true}
-          >
-            <:item :for={%{id: _id, name: name} <- @regions}>
-              <%= name %>
-            </:item>
-          </Select.select>
+          <.input type="select" field={f[:region_id]} options={@region_selector} />
         </Layout.col>
 
         <Button.button type="submit" size="xl" class="mt-2 w-min" phx-disable-with="Saving...">
@@ -82,7 +72,7 @@ defmodule ExampleWeb.ShopLive.FormComponent do
 
     regions = Map.get(query_results, :results)
 
-    socket |> assign(:regions, regions)
+    socket |> assign(region_selector: region_selector(regions))
   end
 
   @impl true
@@ -127,4 +117,24 @@ defmodule ExampleWeb.ShopLive.FormComponent do
 
     assign(socket, form: to_form(form))
   end
+
+  defp region_selector(regions) do
+    for region <- regions do
+      {region.name, region.id}
+    end
+  end
 end
+
+# <:item :for={%{id: _id, name: name} <- @regions}>
+#   <%= name %>
+# </:item>
+
+# <Select.select
+#   id="outlet[region_id]"
+#   name={@form[:region_id].name}
+#   placeholder="Select Region..."
+#   value={@form[:region_id].value}
+#   required={true}
+# >
+
+# </Select.select>
