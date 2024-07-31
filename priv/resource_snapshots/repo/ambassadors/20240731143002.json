@@ -1,45 +1,35 @@
 {
   "attributes": [
     {
-      "default": "fragment(\"gen_random_uuid()\")",
+      "default": "nil",
       "size": null,
       "type": "uuid",
-      "source": "id",
+      "source": "ambassador_id",
       "references": null,
       "allow_nil?": false,
       "generated?": false,
       "primary_key?": true
     },
     {
-      "default": "nil",
-      "size": null,
-      "type": "text",
-      "source": "name",
-      "references": null,
-      "allow_nil?": false,
-      "generated?": false,
-      "primary_key?": false
-    },
-    {
-      "default": "nil",
+      "default": "0",
       "size": null,
       "type": "bigint",
-      "source": "id_num",
+      "source": "total_days_worked",
       "references": null,
       "allow_nil?": false,
       "generated?": false,
       "primary_key?": false
     }
   ],
-  "table": "promoters",
-  "hash": "F0036C0BBDA88CCF5DC9021CA8FA73D929D72A1FF468066879D233CD4CDC4BE9",
+  "table": "ambassadors",
+  "hash": "FAA3101E9FD2733C75AB24958EEA19B6B807A64A9C983E2125333DA07D3C7AEB",
   "repo": "Elixir.Example.Repo",
   "identities": [],
   "schema": null,
   "multitenancy": {
     "global": null,
-    "attribute": null,
-    "strategy": null
+    "strategy": null,
+    "attribute": null
   },
   "base_filter": null,
   "check_constraints": [],

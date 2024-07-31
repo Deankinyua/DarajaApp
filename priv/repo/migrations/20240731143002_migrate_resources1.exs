@@ -8,6 +8,39 @@ defmodule Example.Repo.Migrations.MigrateResources1 do
   use Ecto.Migration
 
   def up do
+    create table(:users, primary_key: false) do
+      add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
+      add :email, :citext, null: false
+      add :hashed_password, :text, null: false
+      add :name, :text, null: false
+
+      add :created_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+
+      add :updated_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+    end
+
+    create unique_index(:users, ["email"], name: "users_unique_email_index")
+
+    create table(:tokens, primary_key: false) do
+      add :updated_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+
+      add :created_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+
+      add :extra_data, :map
+      add :purpose, :text, null: false
+      add :expires_at, :utc_datetime, null: false
+      add :subject, :text, null: false
+      add :jti, :text, null: false, primary_key: true
+    end
+
     create table(:shops, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :name, :text, null: false
@@ -47,9 +80,16 @@ defmodule Example.Repo.Migrations.MigrateResources1 do
         null: false,
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
+
+    create table(:ambassadors, primary_key: false) do
+      add :ambassador_id, :uuid, null: false, primary_key: true
+      add :total_days_worked, :bigint, null: false, default: 0
+    end
   end
 
   def down do
+    drop table(:ambassadors)
+
     alter table(:regions) do
       remove :updated_at
       remove :created_at
@@ -65,5 +105,11 @@ defmodule Example.Repo.Migrations.MigrateResources1 do
     drop table(:regions)
 
     drop table(:shops)
+
+    drop table(:tokens)
+
+    drop_if_exists unique_index(:users, ["email"], name: "users_unique_email_index")
+
+    drop table(:users)
   end
 end

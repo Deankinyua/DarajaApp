@@ -31,8 +31,8 @@
         "schema": "public",
         "multitenancy": {
           "global": null,
-          "attribute": null,
-          "strategy": null
+          "strategy": null,
+          "attribute": null
         },
         "primary_key?": true,
         "on_delete": null,
@@ -70,14 +70,14 @@
     }
   ],
   "table": "shops",
-  "hash": "E2F880DB576E2667FE7585CB3DEFC74DAFDF2E47A3EBF6160F83115E93C06BFB",
+  "hash": "388B3FA228B49F3D3BBCADD7D79ACA8ED1D5FF7462A35F0ECA092DF97718C98C",
   "repo": "Elixir.Example.Repo",
   "identities": [],
   "schema": null,
   "multitenancy": {
     "global": null,
-    "attribute": null,
-    "strategy": null
+    "strategy": null,
+    "attribute": null
   },
   "base_filter": null,
   "check_constraints": [],

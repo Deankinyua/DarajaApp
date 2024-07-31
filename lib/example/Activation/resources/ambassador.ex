@@ -15,7 +15,7 @@ defmodule Example.Activation.Ambassador do
   end
 
   postgres do
-    table "ambassador"
+    table "ambassadors"
     repo Example.Repo
   end
 

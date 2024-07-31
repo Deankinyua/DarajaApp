@@ -13,45 +13,43 @@
     {
       "default": "nil",
       "size": null,
-      "type": "citext",
-      "source": "email",
+      "type": "text",
+      "source": "name",
       "references": null,
       "allow_nil?": false,
       "generated?": false,
       "primary_key?": false
     },
     {
-      "default": "nil",
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
       "size": null,
-      "type": "text",
-      "source": "hashed_password",
+      "type": "utc_datetime_usec",
+      "source": "created_at",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "size": null,
+      "type": "utc_datetime_usec",
+      "source": "updated_at",
       "references": null,
       "allow_nil?": false,
       "generated?": false,
       "primary_key?": false
     }
   ],
-  "table": "users",
-  "hash": "155118EFB4A9D61D2039D6DCBB18FD0EE44C67E817290F7F378437A1C1F6165E",
+  "table": "regions",
+  "hash": "9598EA17DA755A2A9791CEA32D97FBBE8F03F917855A3C687A1870E1491EBCE1",
   "repo": "Elixir.Example.Repo",
-  "identities": [
-    {
-      "name": "unique_email",
-      "keys": [
-        "email"
-      ],
-      "where": null,
-      "nils_distinct?": true,
-      "all_tenants?": false,
-      "index_name": "users_unique_email_index",
-      "base_filter": null
-    }
-  ],
+  "identities": [],
   "schema": null,
   "multitenancy": {
     "global": null,
-    "attribute": null,
-    "strategy": null
+    "strategy": null,
+    "attribute": null
   },
   "base_filter": null,
   "check_constraints": [],

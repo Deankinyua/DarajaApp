@@ -7,8 +7,8 @@
       "source": "id",
       "references": null,
       "allow_nil?": false,
-      "primary_key?": true,
-      "generated?": false
+      "generated?": false,
+      "primary_key?": true
     },
     {
       "default": "nil",
@@ -17,8 +17,8 @@
       "source": "email",
       "references": null,
       "allow_nil?": false,
-      "primary_key?": false,
-      "generated?": false
+      "generated?": false,
+      "primary_key?": false
     },
     {
       "default": "nil",
@@ -27,8 +27,8 @@
       "source": "hashed_password",
       "references": null,
       "allow_nil?": false,
-      "primary_key?": false,
-      "generated?": false
+      "generated?": false,
+      "primary_key?": false
     },
     {
       "default": "nil",
@@ -37,8 +37,8 @@
       "source": "name",
       "references": null,
       "allow_nil?": false,
-      "primary_key?": false,
-      "generated?": false
+      "generated?": false,
+      "primary_key?": false
     },
     {
       "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
@@ -47,8 +47,8 @@
       "source": "created_at",
       "references": null,
       "allow_nil?": false,
-      "primary_key?": false,
-      "generated?": false
+      "generated?": false,
+      "primary_key?": false
     },
     {
       "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
@@ -57,12 +57,12 @@
       "source": "updated_at",
       "references": null,
       "allow_nil?": false,
-      "primary_key?": false,
-      "generated?": false
+      "generated?": false,
+      "primary_key?": false
     }
   ],
   "table": "users",
-  "hash": "5E4DC70D55ED25060C68706C285CB3441E34E23DAC2BD4AD546681C8648E3426",
+  "hash": "D6CC3A00A0814BBB3D6182DEFE17F52CF927E94EF9A0F8B0660EC875114932E8",
   "repo": "Elixir.Example.Repo",
   "identities": [
     {
@@ -71,21 +71,21 @@
         "email"
       ],
       "where": null,
-      "base_filter": null,
-      "all_tenants?": false,
       "nils_distinct?": true,
-      "index_name": "users_unique_email_index"
+      "all_tenants?": false,
+      "index_name": "users_unique_email_index",
+      "base_filter": null
     }
   ],
   "schema": null,
-  "check_constraints": [],
-  "custom_indexes": [],
   "multitenancy": {
     "global": null,
     "strategy": null,
     "attribute": null
   },
   "base_filter": null,
+  "check_constraints": [],
+  "custom_indexes": [],
   "custom_statements": [],
   "has_create_action": true
 }
