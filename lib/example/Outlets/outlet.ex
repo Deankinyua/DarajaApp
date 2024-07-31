@@ -4,7 +4,7 @@ defmodule Example.Outlet do
 
   domain do
     description """
-    This Domain holds Resources related to the Outlets.
+    This Domain holds Resources related to the Shops and their respective Regions.
     """
   end
 

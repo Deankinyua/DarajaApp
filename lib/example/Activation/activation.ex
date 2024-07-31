@@ -8,15 +8,15 @@ defmodule Example.Activation do
   end
 
   resources do
-    resource Example.Activation.Promoter do
+    resource Example.Activation.Ambassador do
       # Define an interface for calling resource actions.
       # We use the Function when we executing code
       # <Function> <Action>
-      define :create_promoter, action: :create
-      define :list_promoters, action: :read
-      define :update_promoter, action: :update
-      define :destroy_promoter, action: :destroy
-      define :get_promoter, args: [:id], action: :by_id
+      define :create_ambassador, action: :create
+      define :list_ambassadors, action: :read
+      define :update_ambassador, action: :update
+      define :get_ambassador, args: [:id], action: :by_id
+      define :destroy_ambassador, action: :destroy
     end
   end
 end

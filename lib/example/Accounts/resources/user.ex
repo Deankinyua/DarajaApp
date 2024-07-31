@@ -6,7 +6,7 @@ defmodule Example.Accounts.User do
 
   resource do
     description """
-    Represents the user of a system.
+    Represents the User of the DarajaPlus system.
     """
   end
 
@@ -14,17 +14,6 @@ defmodule Example.Accounts.User do
     table "users"
     repo Example.Repo
   end
-
-  # attributes do
-  #   uuid_primary_key :id
-
-  #   attribute :email, :ci_string do
-  #     allow_nil? false
-  #     public? true
-  #   end
-
-  #   attribute :hashed_password, :string, allow_nil?: false, sensitive?: true
-  # end
 
   attributes do
     uuid_primary_key :id
@@ -43,20 +32,6 @@ defmodule Example.Accounts.User do
     create_timestamp :created_at
     update_timestamp :updated_at
   end
-
-  # authentication do
-  #   strategies do
-  #     password :password do
-  #       identity_field :email
-  #     end
-  #   end
-
-  #   tokens do
-  #     enabled? true
-  #     token_resource Example.Accounts.Token
-  #     signing_secret Example.Accounts.Secrets
-  #   end
-  # end
 
   authentication do
     domain Example.Accounts
@@ -86,6 +61,18 @@ defmodule Example.Accounts.User do
 
   validations do
     validate match(:email, ~r/^[^\s]+@[^\s]+$/), message: "must have the @ sign and no spaces"
+  end
+
+  actions do
+    read :by_email do
+      # This action has one argument :email of type :ci_string
+      argument :email, :ci_string, allow_nil?: false
+      # Tells us we expect this action to return a single result
+      get? true
+      # Filters the `:email` given in the argument
+      # against the `email` of each element in the resource
+      filter expr(email == ^arg(:email))
+    end
   end
 
   # If using policies, add the following bypass:

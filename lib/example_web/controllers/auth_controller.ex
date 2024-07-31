@@ -3,7 +3,7 @@ defmodule ExampleWeb.AuthController do
   use AshAuthentication.Phoenix.Controller
 
   def success(conn, _activity, user, _token) do
-    return_to = get_session(conn, :return_to) || ~p"/promoters"
+    return_to = get_session(conn, :return_to) || ~p"/outlets"
 
     conn
     |> delete_session(:return_to)
