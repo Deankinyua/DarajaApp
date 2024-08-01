@@ -1,6 +1,9 @@
 defmodule ExampleWeb.AmbassadorLive.Index do
   use ExampleWeb, :live_view
 
+  alias Example.Activation
+  alias Example.Accounts
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -12,6 +15,10 @@ defmodule ExampleWeb.AmbassadorLive.Index do
         </.link>
       </:actions>
     </.header>
+
+    <.table id="ambassadors" rows={@streams.ambassadors}>
+      <:col :let={{_id, ambassador}} label="Name"><%= ambassador.name %></:col>
+    </.table>
 
     <.modal
       :if={@live_action in [:new, :edit]}
@@ -34,7 +41,15 @@ defmodule ExampleWeb.AmbassadorLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket}
+    {:ok, stream(socket, :ambassadors, get_records())}
+  end
+
+  def get_records do
+    ambassadors = Activation.list_ambassadors!()
+
+    for ambassador <- ambassadors do
+      Accounts.get_user_by_id!(ambassador.ambassador_id)
+    end
   end
 
   @impl true

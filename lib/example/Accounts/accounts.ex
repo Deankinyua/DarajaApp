@@ -10,6 +10,7 @@ defmodule Example.Accounts do
       # <Function> <Args> <Action>
 
       define :get_user, args: [:email], action: :by_email
+      define :get_user_by_id, args: [:id], action: :by_id
     end
   end
 end

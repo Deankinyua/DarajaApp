@@ -73,6 +73,16 @@ defmodule Example.Accounts.User do
       # against the `email` of each element in the resource
       filter expr(email == ^arg(:email))
     end
+
+    read :by_id do
+      # This action has one argument :id of type :ci_string
+      argument :id, :uuid, allow_nil?: false
+      # Tells us we expect this action to return a single result
+      get? true
+      # Filters the `:id` given in the argument
+      # against the `id` of each element in the resource
+      filter expr(id == ^arg(:id))
+    end
   end
 
   # If using policies, add the following bypass:
