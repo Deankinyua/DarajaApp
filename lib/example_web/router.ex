@@ -37,6 +37,13 @@ defmodule ExampleWeb.Router do
       on_mount: {ExampleWeb.LiveUserAuth, :live_user_required} do
       # live "/promoters", BaLive
 
+      live "/ambassadors", AmbassadorLive.Index, :index
+      live "/ambassadors/new", AmbassadorLive.Index, :new
+      live "/ambassadors/:id/edit", AmbassadorLive.Index, :edit
+
+      live "/ambassadors/:id", AmbassadorLive.Show, :show
+      live "/ambassadors/:id/show/edit", AmbassadorLive.Show, :edit
+
       live "/regions", RegionLive.Index, :index
       live "/regions/new", RegionLive.Index, :new
       live "/regions/:id/edit", RegionLive.Index, :edit
