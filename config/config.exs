@@ -8,7 +8,7 @@
 import Config
 
 config :example,
-  ash_domains: [Example.Accounts, Example.Activation, Example.Outlet]
+  ash_domains: [Example.Accounts, Example.Activation, Example.Outlet, Example.Project]
 
 config :example,
   ecto_repos: [Example.Repo],

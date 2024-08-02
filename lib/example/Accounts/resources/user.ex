@@ -64,6 +64,8 @@ defmodule Example.Accounts.User do
   end
 
   actions do
+    defaults [:read]
+
     read :by_email do
       # This action has one argument :email of type :ci_string
       argument :email, :ci_string, allow_nil?: false

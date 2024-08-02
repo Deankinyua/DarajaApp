@@ -72,14 +72,14 @@
     }
   ],
   "table": "tokens",
-  "hash": "AE2F09DE877864EE3A814D7B2D24A41B88B79C869BEAD92907E6A980301E7ADC",
+  "hash": "AEF74F15ABDB18729233D5A02EF48916BCDA78CBD753EF48172451161B9B4039",
   "repo": "Elixir.Example.Repo",
   "identities": [],
   "schema": null,
   "multitenancy": {
     "global": null,
-    "strategy": null,
-    "attribute": null
+    "attribute": null,
+    "strategy": null
   },
   "base_filter": null,
   "check_constraints": [],

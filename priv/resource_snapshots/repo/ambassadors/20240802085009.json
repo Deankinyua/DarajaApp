@@ -22,14 +22,14 @@
     }
   ],
   "table": "ambassadors",
-  "hash": "FAA3101E9FD2733C75AB24958EEA19B6B807A64A9C983E2125333DA07D3C7AEB",
+  "hash": "3C4AA6043E7649F83EBA55EAFC20E0221F06CAB4F370B78BC01E0AE1E9E6C4DD",
   "repo": "Elixir.Example.Repo",
   "identities": [],
   "schema": null,
   "multitenancy": {
     "global": null,
-    "strategy": null,
-    "attribute": null
+    "attribute": null,
+    "strategy": null
   },
   "base_filter": null,
   "check_constraints": [],

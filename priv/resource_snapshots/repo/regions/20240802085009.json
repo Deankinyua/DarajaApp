@@ -42,14 +42,14 @@
     }
   ],
   "table": "regions",
-  "hash": "9598EA17DA755A2A9791CEA32D97FBBE8F03F917855A3C687A1870E1491EBCE1",
+  "hash": "28D179211FC47F15A1C0CD158F967658D03B58A076FE4BFEE9F630546B68236F",
   "repo": "Elixir.Example.Repo",
   "identities": [],
   "schema": null,
   "multitenancy": {
     "global": null,
-    "strategy": null,
-    "attribute": null
+    "attribute": null,
+    "strategy": null
   },
   "base_filter": null,
   "check_constraints": [],

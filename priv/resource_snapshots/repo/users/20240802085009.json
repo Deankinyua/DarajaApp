@@ -62,7 +62,7 @@
     }
   ],
   "table": "users",
-  "hash": "D6CC3A00A0814BBB3D6182DEFE17F52CF927E94EF9A0F8B0660EC875114932E8",
+  "hash": "C582039182E8B28A31C8E99522F3AF0B735E85DC4A260361896BBD50C445757E",
   "repo": "Elixir.Example.Repo",
   "identities": [
     {
@@ -80,8 +80,8 @@
   "schema": null,
   "multitenancy": {
     "global": null,
-    "strategy": null,
-    "attribute": null
+    "attribute": null,
+    "strategy": null
   },
   "base_filter": null,
   "check_constraints": [],

@@ -81,6 +81,18 @@ defmodule Example.Repo.Migrations.MigrateResources1 do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
+    create table(:project1, primary_key: false) do
+      add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
+      add :ambassador_id, :uuid, null: false
+      add :outlet_id, :uuid, null: false
+      add :field_1, :bigint
+      add :field_2, :bigint
+      add :field_3, :bigint
+      add :field_4, :bigint
+      add :field_5, :bigint
+      add :field_6, :bigint
+    end
+
     create table(:ambassadors, primary_key: false) do
       add :ambassador_id, :uuid, null: false, primary_key: true
       add :total_days_worked, :bigint, null: false, default: 0
@@ -89,6 +101,8 @@ defmodule Example.Repo.Migrations.MigrateResources1 do
 
   def down do
     drop table(:ambassadors)
+
+    drop table(:project1)
 
     alter table(:regions) do
       remove :updated_at
