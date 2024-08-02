@@ -38,6 +38,7 @@ defmodule Example.Project.Project1 do
     attribute :field_5, :integer
     attribute :field_6, :integer
     attribute :field_7, :integer
+    attribute :total_sales, :integer
   end
 
   actions do

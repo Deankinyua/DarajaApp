@@ -30,7 +30,8 @@ defmodule ExampleWeb.Project1Live.FormComponent do
           field={@form[:field_4]}
           type="number"
           label="Field 4"
-        /><.input field={@form[:field_5]} type="number" label="Field 5" />
+        />
+        <.input field={@form[:field_5]} type="number" label="Field 5" />
 
         <:actions>
           <.button phx-disable-with="Saving...">Save Project1</.button>
@@ -82,6 +83,7 @@ defmodule ExampleWeb.Project1Live.FormComponent do
   end
 
   def handle_event("save", %{"project1" => project1_params}, socket) do
+    project1_params = get_complete_params(project1_params)
     dbg(project1_params)
 
     case AshPhoenix.Form.submit(socket.assigns.form, params: project1_params) do
@@ -98,6 +100,19 @@ defmodule ExampleWeb.Project1Live.FormComponent do
       {:error, form} ->
         {:noreply, assign(socket, form: form)}
     end
+  end
+
+  def get_complete_params(params) do
+    new_map = Map.drop(params, ["ambassador_id", "outlet_id"])
+    list_num = Enum.map(new_map, fn {_k, v} -> v end)
+
+    list_final = Enum.map(list_num, fn x -> String.to_integer(x) end)
+
+    total_sales = Integer.to_string(Enum.sum(list_final))
+
+    new_map = %{"total_sales" => total_sales}
+
+    Map.merge(params, new_map)
   end
 
   defp notify_parent(msg), do: send(self(), {__MODULE__, msg})

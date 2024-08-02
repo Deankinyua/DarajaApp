@@ -27,13 +27,19 @@ defmodule ExampleWeb.Project1Live.Index do
         <%= record.field_1 %>
       </:col>
       <:col :let={{_id, record}} label="Nivea Cocoa">
-        <%= record.field_1 %>
+        <%= record.field_2 %>
       </:col>
       <:col :let={{_id, record}} label="Nivea Shea Nourishing">
-        <%= record.field_1 %>
+        <%= record.field_3 %>
       </:col>
       <:col :let={{_id, record}} label="Nivea Even Glow">
-        <%= record.field_1 %>
+        <%= record.field_4 %>
+      </:col>
+      <:col :let={{_id, record}} label="Nivea Repair and Care">
+        <%= record.field_5 %>
+      </:col>
+      <:col :let={{_id, record}} label="Total Sales">
+        <%= record.total_sales %>
       </:col>
     </.table>
 
