@@ -21,7 +21,6 @@ defmodule Example.Project.Project1 do
 
   # Attributes are simple pieces of data that exist in your resource
   attributes do
-
     uuid_primary_key :id
 
     attribute :ambassador_id, :uuid do
@@ -38,6 +37,7 @@ defmodule Example.Project.Project1 do
     attribute :field_4, :integer
     attribute :field_5, :integer
     attribute :field_6, :integer
+    attribute :field_7, :integer
   end
 
   actions do

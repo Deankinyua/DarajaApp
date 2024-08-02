@@ -1,6 +1,8 @@
 defmodule ExampleWeb.Project1Live.FormComponent do
   use ExampleWeb, :live_component
 
+  alias Example.Accounts
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -50,15 +52,14 @@ defmodule ExampleWeb.Project1Live.FormComponent do
 
   defp fetch_promoters(socket) do
     query_results =
-      Example.Accounts.User
+      Example.Activation.Ambassador
       |> Ash.Query.load([])
       # |> Ash.Query.for_read(:by_user_id, %{id: socket.assigns.current_user.id})
-      |> Ash.Query.sort(created_at: :desc)
       |> Ash.read!(page: [limit: 20])
 
     promoters = Map.get(query_results, :results)
 
-    socket |> assign(promoter_selector: resource_selector(promoters))
+    socket |> assign(promoter_selector: ambassador_selector(promoters))
   end
 
   defp fetch_outlets(socket) do
@@ -121,6 +122,14 @@ defmodule ExampleWeb.Project1Live.FormComponent do
   defp resource_selector(resource) do
     for item <- resource do
       {item.name, item.id}
+    end
+  end
+
+  defp ambassador_selector(ambassadors) do
+    for item <- ambassadors do
+      user = Accounts.get_user_by_id!(item.ambassador_id)
+
+      {user.name, item.ambassador_id}
     end
   end
 end

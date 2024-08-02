@@ -15,8 +15,6 @@ defmodule ExampleWeb.Project1Live.Show do
       </:actions>
     </.header>
 
-    <.list></.list>
-
     <.back navigate={~p"/project1_plural"}>Back to project1_plural</.back>
 
     <.modal

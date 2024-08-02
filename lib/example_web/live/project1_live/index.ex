@@ -1,6 +1,8 @@
 defmodule ExampleWeb.Project1Live.Index do
   use ExampleWeb, :live_view
 
+  alias Example.Accounts
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -8,10 +10,32 @@ defmodule ExampleWeb.Project1Live.Index do
       Listing Project1 plural
       <:actions>
         <.link patch={~p"/project1_plural/new"}>
-          <.button>New Project1</.button>
+          <.button>New Record</.button>
         </.link>
       </:actions>
     </.header>
+
+    <.table
+      id="outlets"
+      rows={@streams.project1}
+      row_click={fn {_id, record} -> JS.navigate(~p"/outlets/#{record}") end}
+    >
+      <:col :let={{_id, record}} label="Ambassador Name">
+        <%= Accounts.get_user_by_id!(record.ambassador_id).name %>
+      </:col>
+      <:col :let={{_id, record}} label="Nivea Radiant">
+        <%= record.field_1 %>
+      </:col>
+      <:col :let={{_id, record}} label="Nivea Cocoa">
+        <%= record.field_1 %>
+      </:col>
+      <:col :let={{_id, record}} label="Nivea Shea Nourishing">
+        <%= record.field_1 %>
+      </:col>
+      <:col :let={{_id, record}} label="Nivea Even Glow">
+        <%= record.field_1 %>
+      </:col>
+    </.table>
 
     <.modal
       :if={@live_action in [:new, :edit]}
@@ -34,7 +58,13 @@ defmodule ExampleWeb.Project1Live.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket}
+    {:ok,
+     socket
+     |> stream(
+       :project1,
+       Ash.read!(Example.Project.Project1, actor: socket.assigns[:current_user])
+     )
+     |> assign_new(:current_user, fn -> nil end)}
   end
 
   @impl true
@@ -63,8 +93,8 @@ defmodule ExampleWeb.Project1Live.Index do
     |> assign(:project1, nil)
   end
 
-  @impl true
-  def handle_info({ExampleWeb.Project1Live.FormComponent, {:saved, project1}}, socket) do
-    {:noreply, stream_insert(socket, :project1_plural, project1)}
-  end
+  # @impl true
+  # def handle_info({ExampleWeb.Project1Live.FormComponent, {:saved, project1}}, socket) do
+  #   {:noreply, stream_insert(socket, :project1_plural, project1)}
+  # end
 end
