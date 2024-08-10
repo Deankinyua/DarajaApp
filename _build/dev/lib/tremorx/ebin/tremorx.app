@@ -1,5 +1,5 @@
 {application,tremorx,
-             [{config_mtime,1719649731},
+             [{config_mtime,1723251759},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir,logger,phoenix,
                              phoenix_live_view,tails]},

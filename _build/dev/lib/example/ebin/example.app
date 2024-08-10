@@ -1,5 +1,5 @@
 {application,example,
-             [{config_mtime,1722584321},
+             [{config_mtime,1723256058},
               {compile_env,[{elixir,[dbg_callback],
                                     {ok,{'Elixir.Macro',dbg,[]}}},
                             {example,['Elixir.ExampleWeb.Gettext'],error},
