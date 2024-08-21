@@ -9,7 +9,7 @@ defmodule ExampleWeb.AmbassadorLive.FormComponent do
     <div>
       <.header>
         <%= @title %>
-        <:subtitle>Use this form to manage ambassador records in your database.</:subtitle>
+        <:subtitle>Use this form to manage ambassador records in your database .</:subtitle>
       </.header>
 
       <.simple_form
