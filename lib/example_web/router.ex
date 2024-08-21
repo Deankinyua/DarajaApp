@@ -41,6 +41,13 @@ defmodule ExampleWeb.Router do
       live "/project1_plural/new", Project1Live.Index, :new
       live "/project1_plural/:id/edit", Project1Live.Index, :edit
 
+      live "/labels", LabelLive.Index, :index
+      live "/labels/new", LabelLive.Index, :new
+      live "/labels/:id/edit", LabelLive.Index, :edit
+
+      live "/labels/:id", LabelLive.Show, :show
+      live "/labels/:id/show/edit", LabelLive.Show, :edit
+
       live "/project1_plural/:id", Project1Live.Show, :show
       live "/project1_plural/:id/show/edit", Project1Live.Show, :edit
 

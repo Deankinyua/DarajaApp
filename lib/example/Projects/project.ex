@@ -15,5 +15,13 @@ defmodule Example.Project do
       define :add_data, action: :create
       define :update_data, action: :update
     end
+
+    resource Example.Project.Label do
+      # Define an interface for calling resource actions.
+      # We use the Function when we executing code
+      # <Function> <Action>
+      define :add_label, action: :create
+      define :update_label, action: :update
+    end
   end
 end

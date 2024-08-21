@@ -1,4 +1,4 @@
-defmodule Example.Project.Project1 do
+defmodule Example.Project.Label do
   use Ash.Resource,
     # Tells Ash where the generated code interface belongs
     domain: Example.Project,
@@ -6,29 +6,25 @@ defmodule Example.Project.Project1 do
 
   resource do
     description """
-    Represents the Project1
+    Represents the labels that will be put on the reporting templates to control
+    how data is read / written
     Handles the Sensitive information belonging to a Project1
     """
 
-    plural_name :project1_plural
-    short_name :project1
+    plural_name :labels
+    short_name :label
   end
 
   postgres do
-    table "project1"
+    table "labels"
     repo Example.Repo
   end
 
   # Attributes are simple pieces of data that exist in your resource
   attributes do
-    uuid_primary_key :id
-
-    attribute :ambassador_id, :uuid do
+    attribute :project_id, :uuid do
       allow_nil? false
-    end
-
-    attribute :outlet_id, :uuid do
-      allow_nil? false
+      primary_key? true
     end
 
     attribute :field_1, :integer
@@ -38,7 +34,6 @@ defmodule Example.Project.Project1 do
     attribute :field_5, :integer
     attribute :field_6, :integer
     attribute :field_7, :integer
-    attribute :total_sales, :integer
   end
 
   actions do
@@ -47,30 +42,12 @@ defmodule Example.Project.Project1 do
 
     create :create do
       # * accept behaves like cast/3 in ecto changesets
-      accept [
-        :ambassador_id,
-        :outlet_id,
-        :field_1,
-        :field_2,
-        :field_3,
-        :field_4,
-        :field_5,
-        :total_sales
-      ]
+      accept [:project_id, :field_1, :field_2, :field_3, :field_4, :field_5]
     end
 
     update :update do
       # * accept behaves like cast/3 in ecto changesets
-      accept [
-        :ambassador_id,
-        :outlet_id,
-        :field_1,
-        :field_2,
-        :field_3,
-        :field_4,
-        :field_5,
-        :total_sales
-      ]
+      accept [:field_1, :field_2, :field_3, :field_4, :field_5]
     end
   end
 end
