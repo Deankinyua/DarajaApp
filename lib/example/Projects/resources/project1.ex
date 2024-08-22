@@ -55,6 +55,7 @@ defmodule Example.Project.Project1 do
     create :create do
       # * accept behaves like cast/3 in ecto changesets
       accept [
+        :project_id,
         :ambassador_id,
         :outlet_id,
         :field_1,

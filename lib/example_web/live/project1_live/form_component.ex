@@ -1,6 +1,6 @@
 defmodule ExampleWeb.Project1Live.FormComponent do
   use ExampleWeb, :live_component
-  import ExampleWeb.LabelLive.FormComponent
+  alias ExampleWeb.LabelLive.FormComponent
 
   alias Example.ProjectGeneral
 
@@ -71,7 +71,7 @@ defmodule ExampleWeb.Project1Live.FormComponent do
      |> assign(assigns)
      |> assign(result: result)
      |> fetch_promoters()
-     |> fetch_projects()
+     |> FormComponent.fetch_projects()
      |> fetch_outlets()
      |> assign_form()}
   end
@@ -119,15 +119,19 @@ defmodule ExampleWeb.Project1Live.FormComponent do
 
     result = ProjectGeneral.get_template_by_project_id!(project_id)
 
+    # dbg(AshPhoenix.Form.validate(socket.assigns.form, project1_params, errors: true))
+
     {:noreply,
      socket
-     #  |> assign(form: AshPhoenix.Form.validate(socket.assigns.form, project1_params))
+     |> assign(form: AshPhoenix.Form.validate(socket.assigns.form, project1_params))
      |> assign(result: result)}
   end
 
   def handle_event("save", %{"project1" => project1_params}, socket) do
     project1_params = get_complete_params(project1_params)
-    dbg(project1_params)
+    # dbg(project1_params)
+    dbg(socket.assigns.form)
+    # dbg(socket.assigns)
 
     case AshPhoenix.Form.submit(socket.assigns.form, params: project1_params) do
       {:ok, project1} ->
@@ -150,7 +154,7 @@ defmodule ExampleWeb.Project1Live.FormComponent do
     list_num = Enum.map(new_map, fn {_k, v} -> v end)
 
     list_final = Enum.map(list_num, fn x -> String.to_integer(x) end)
-    total_sales = Integer.to_string(Enum.sum(list_final))
+    total_sales = Enum.sum(list_final)
 
     new_map = %{"total_sales" => total_sales}
 
