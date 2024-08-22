@@ -1,0 +1,289 @@
+{
+  "attributes": [
+    {
+      "default": "fragment(\"gen_random_uuid()\")",
+      "size": null,
+      "type": "uuid",
+      "source": "id",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": true
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "project_id",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "ambassador_id",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "outlet_id",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_1",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_2",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_3",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_4",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_5",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_6",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_7",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_8",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_9",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_10",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_11",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_12",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_13",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_14",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_15",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_16",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_17",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_18",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_19",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "field_20",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "bigint",
+      "source": "total_sales",
+      "references": null,
+      "allow_nil?": true,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "size": null,
+      "type": "utc_datetime_usec",
+      "source": "created_at",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": false
+    },
+    {
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "size": null,
+      "type": "utc_datetime_usec",
+      "source": "updated_at",
+      "references": null,
+      "allow_nil?": false,
+      "generated?": false,
+      "primary_key?": false
+    }
+  ],
+  "table": "project1",
+  "hash": "F84488F20130315FC7DEFD9A5DCD3DE6FC4E8396A6E2AFF3ED8A88880F84030B",
+  "repo": "Elixir.Example.Repo",
+  "identities": [],
+  "schema": null,
+  "multitenancy": {
+    "global": null,
+    "attribute": null,
+    "strategy": null
+  },
+  "base_filter": null,
+  "check_constraints": [],
+  "custom_indexes": [],
+  "custom_statements": [],
+  "has_create_action": true
+}

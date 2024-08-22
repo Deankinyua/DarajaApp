@@ -51,12 +51,12 @@ defmodule ExampleWeb.Router do
       live "/projects/:id", ProjectLive.Show, :show
       live "/projects/:id/show/edit", ProjectLive.Show, :edit
 
-      live "/project1_plural", Project1Live.Index, :index
-      live "/project1_plural/new", Project1Live.Index, :new
-      live "/project1_plural/:id/edit", Project1Live.Index, :edit
+      live "/project1", Project1Live.Index, :index
+      live "/project1/new", Project1Live.Index, :new
+      live "/project1/:id/edit", Project1Live.Index, :edit
 
-      live "/project1_plural/:id", Project1Live.Show, :show
-      live "/project1_plural/:id/show/edit", Project1Live.Show, :edit
+      live "/project1/:id", Project1Live.Show, :show
+      live "/project1/:id/show/edit", Project1Live.Show, :edit
 
       live "/ambassadors", AmbassadorLive.Index, :index
       live "/ambassadors/new", AmbassadorLive.Index, :new
@@ -78,9 +78,6 @@ defmodule ExampleWeb.Router do
 
       live "/outlets/:id", ShopLive.Show, :show
       live "/outlets/:id/show/edit", ShopLive.Show, :edit
-      # live "/forms", FormLive, :index
-      # live "/forms/new", FormLive, :new
-      # live "/forms/:id/edit", FormLive, :edit
     end
 
     # add these lines -->

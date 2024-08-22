@@ -1,0 +1,229 @@
+{
+  "attributes": [
+    {
+      "default": "nil",
+      "size": null,
+      "type": "uuid",
+      "source": "project_id",
+      "references": null,
+      "allow_nil?": false,
+      "primary_key?": true,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_1",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_2",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_3",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_4",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_5",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_6",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_7",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_8",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_9",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_10",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_11",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_12",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_13",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_14",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_15",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_16",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_17",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_18",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_19",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    },
+    {
+      "default": "nil",
+      "size": null,
+      "type": "text",
+      "source": "field_20",
+      "references": null,
+      "allow_nil?": true,
+      "primary_key?": false,
+      "generated?": false
+    }
+  ],
+  "table": "labels",
+  "hash": "FE8EBE77D5B47D765C23CE143D69109D1DBD9D60CA6C03200513D04A926CCB0C",
+  "repo": "Elixir.Example.Repo",
+  "identities": [],
+  "schema": null,
+  "check_constraints": [],
+  "custom_indexes": [],
+  "multitenancy": {
+    "global": null,
+    "strategy": null,
+    "attribute": null
+  },
+  "base_filter": null,
+  "custom_statements": [],
+  "has_create_action": true
+}

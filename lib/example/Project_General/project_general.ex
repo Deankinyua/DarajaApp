@@ -15,6 +15,7 @@ defmodule Example.ProjectGeneral do
       # <Function> <Action>
       define :add_project, action: :create
       define :update_project, action: :update
+      define :get_project_by_id, args: [:id], action: :by_id
     end
 
     resource Example.ProjectGeneral.Label do
@@ -23,16 +24,8 @@ defmodule Example.ProjectGeneral do
       # <Function> <Action>
       define :add_label, action: :create
       define :update_label, action: :update
+      define :list_labels, action: :read
       define :get_template_by_project_id, args: [:project_id], action: :by_id
     end
   end
-
-  # new_project =
-  # (Example.ProjectGeneral.Project
-  # |> Ash.Changeset.for_create(:new, %{
-  #   name: "Project Five"
-
-  # }))
-
-  #  Ash.DataLayer.create(Example.ProjectGeneral.Project, new_project)
 end

@@ -43,7 +43,7 @@ defmodule ExampleWeb.Project1Live.FormComponent do
         <.input field={@form[:field_5]} type="number" label={@result.field_5} />
 
         <:actions>
-          <.button phx-disable-with="Saving...">Save Project1</.button>
+          <.button phx-disable-with="Saving...">Save Your Report</.button>
         </:actions>
       </.simple_form>
     </div>

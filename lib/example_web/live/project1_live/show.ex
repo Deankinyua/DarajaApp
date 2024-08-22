@@ -6,22 +6,22 @@ defmodule ExampleWeb.Project1Live.Show do
     ~H"""
     <.header>
       Project1 <%= @project1.id %>
-      <:subtitle>This is a project1 record from your database.</:subtitle>
+      <:subtitle>This is a project record from your database.</:subtitle>
 
       <:actions>
-        <.link patch={~p"/project1_plural/#{@project1}/show/edit"} phx-click={JS.push_focus()}>
+        <.link patch={~p"/project1/#{@project1}/show/edit"} phx-click={JS.push_focus()}>
           <.button>Edit project1</.button>
         </.link>
       </:actions>
     </.header>
 
-    <.back navigate={~p"/project1_plural"}>Back to project1_plural</.back>
+    <.back navigate={~p"/project1"}>Back to project1</.back>
 
     <.modal
       :if={@live_action == :edit}
       id="project1-modal"
       show
-      on_cancel={JS.patch(~p"/project1_plural/#{@project1}")}
+      on_cancel={JS.patch(~p"/project1/#{@project1}")}
     >
       <.live_component
         module={ExampleWeb.Project1Live.FormComponent}
@@ -30,7 +30,7 @@ defmodule ExampleWeb.Project1Live.Show do
         action={@live_action}
         current_user={@current_user}
         project1={@project1}
-        patch={~p"/project1_plural/#{@project1}"}
+        patch={~p"/project1/#{@project1}"}
       />
     </.modal>
     """

@@ -1,6 +1,8 @@
 defmodule ExampleWeb.LabelLive.Index do
   use ExampleWeb, :live_view
 
+  alias Example.ProjectGeneral
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -12,6 +14,17 @@ defmodule ExampleWeb.LabelLive.Index do
         </.link>
       </:actions>
     </.header>
+
+    <.table id="labels" rows={@streams.labels}>
+      <:col :let={{_id, label}} label="Project Name">
+        <%= ProjectGeneral.get_project_by_id!(label.project_id).name %>
+      </:col>
+      <:col :let={{_id, label}} label="Field 1"><%= label.field_1 %></:col>
+      <:col :let={{_id, label}} label="Field 2"><%= label.field_2 %></:col>
+      <:col :let={{_id, label}} label="Field 3"><%= label.field_3 %></:col>
+      <:col :let={{_id, label}} label="Field 4"><%= label.field_4 %></:col>
+      <:col :let={{_id, label}} label="Field 5"><%= label.field_5 %></:col>
+    </.table>
 
     <.modal
       :if={@live_action in [:new, :edit]}
@@ -33,10 +46,9 @@ defmodule ExampleWeb.LabelLive.Index do
   end
 
   @impl true
+
   def mount(_params, _session, socket) do
-    {:ok,
-     socket
-     |> assign(current_user: nil)}
+    {:ok, stream(socket, :labels, ProjectGeneral.list_labels!())}
   end
 
   @impl true

@@ -7,9 +7,9 @@ defmodule ExampleWeb.Project1Live.Index do
   def render(assigns) do
     ~H"""
     <.header>
-      Listing Project1 plural
+      Listing The Projects
       <:actions>
-        <.link patch={~p"/project1_plural/new"}>
+        <.link patch={~p"/project1/new"}>
           <.button>New Record</.button>
         </.link>
       </:actions>
@@ -47,7 +47,7 @@ defmodule ExampleWeb.Project1Live.Index do
       :if={@live_action in [:new, :edit]}
       id="project1-modal"
       show
-      on_cancel={JS.patch(~p"/project1_plural")}
+      on_cancel={JS.patch(~p"/project1")}
     >
       <.live_component
         module={ExampleWeb.Project1Live.FormComponent}
@@ -56,7 +56,7 @@ defmodule ExampleWeb.Project1Live.Index do
         current_user={@current_user}
         action={@live_action}
         project1={@project1}
-        patch={~p"/project1_plural"}
+        patch={~p"/project1"}
       />
     </.modal>
     """
@@ -98,9 +98,4 @@ defmodule ExampleWeb.Project1Live.Index do
     |> assign(:page_title, "Listing Project1 plural")
     |> assign(:project1, nil)
   end
-
-  # @impl true
-  # def handle_info({ExampleWeb.Project1Live.FormComponent, {:saved, project1}}, socket) do
-  #   {:noreply, stream_insert(socket, :project1_plural, project1)}
-  # end
 end

@@ -6,8 +6,8 @@ defmodule Example.Project.Project1 do
 
   resource do
     description """
-    Represents Project One
-    Handles the Sensitive information belonging to a Project One
+    Represents the Project Resource
+    Handles the Data uploaded by the brand ambassadors of all the Projects
     """
 
     plural_name :project1_plural
@@ -21,7 +21,9 @@ defmodule Example.Project.Project1 do
 
   # Attributes are simple pieces of data that exist in your resource
   attributes do
-    uuid_primary_key :id
+    uuid_primary_key :id do
+      description "Each Record in this Massive table will be identified by a Unique UUID"
+    end
 
     attribute :project_id, :uuid do
       allow_nil? false
@@ -42,6 +44,19 @@ defmodule Example.Project.Project1 do
     attribute :field_5, :integer
     attribute :field_6, :integer
     attribute :field_7, :integer
+    attribute :field_8, :integer
+    attribute :field_9, :integer
+    attribute :field_10, :integer
+    attribute :field_11, :integer
+    attribute :field_12, :integer
+    attribute :field_13, :integer
+    attribute :field_14, :integer
+    attribute :field_15, :integer
+    attribute :field_16, :integer
+    attribute :field_17, :integer
+    attribute :field_18, :integer
+    attribute :field_19, :integer
+    attribute :field_20, :integer
     attribute :total_sales, :integer
 
     create_timestamp :created_at
@@ -63,13 +78,30 @@ defmodule Example.Project.Project1 do
         :field_3,
         :field_4,
         :field_5,
+        :field_6,
+        :field_7,
+        :field_8,
+        :field_9,
+        :field_10,
+        :field_11,
+        :field_12,
+        :field_13,
+        :field_14,
+        :field_15,
+        :field_16,
+        :field_17,
+        :field_18,
+        :field_19,
+        :field_20,
         :total_sales
       ]
     end
 
     update :update do
       # * accept behaves like cast/3 in ecto changesets
+
       accept [
+        :project_id,
         :ambassador_id,
         :outlet_id,
         :field_1,
@@ -77,6 +109,21 @@ defmodule Example.Project.Project1 do
         :field_3,
         :field_4,
         :field_5,
+        :field_6,
+        :field_7,
+        :field_8,
+        :field_9,
+        :field_10,
+        :field_11,
+        :field_12,
+        :field_13,
+        :field_14,
+        :field_15,
+        :field_16,
+        :field_17,
+        :field_18,
+        :field_19,
+        :field_20,
         :total_sales
       ]
     end
