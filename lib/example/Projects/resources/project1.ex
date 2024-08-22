@@ -6,8 +6,8 @@ defmodule Example.Project.Project1 do
 
   resource do
     description """
-    Represents the Project1
-    Handles the Sensitive information belonging to a Project1
+    Represents Project One
+    Handles the Sensitive information belonging to a Project One
     """
 
     plural_name :project1_plural
@@ -22,6 +22,10 @@ defmodule Example.Project.Project1 do
   # Attributes are simple pieces of data that exist in your resource
   attributes do
     uuid_primary_key :id
+
+    attribute :project_id, :uuid do
+      allow_nil? false
+    end
 
     attribute :ambassador_id, :uuid do
       allow_nil? false
@@ -39,6 +43,9 @@ defmodule Example.Project.Project1 do
     attribute :field_6, :integer
     attribute :field_7, :integer
     attribute :total_sales, :integer
+
+    create_timestamp :created_at
+    update_timestamp :updated_at
   end
 
   actions do

@@ -1,7 +1,7 @@
-defmodule Example.Project.Label do
+defmodule Example.ProjectGeneral.Label do
   use Ash.Resource,
     # Tells Ash where the generated code interface belongs
-    domain: Example.Project,
+    domain: Example.ProjectGeneral,
     data_layer: AshPostgres.DataLayer
 
   resource do
@@ -27,13 +27,13 @@ defmodule Example.Project.Label do
       primary_key? true
     end
 
-    attribute :field_1, :integer
-    attribute :field_2, :integer
-    attribute :field_3, :integer
-    attribute :field_4, :integer
-    attribute :field_5, :integer
-    attribute :field_6, :integer
-    attribute :field_7, :integer
+    attribute :field_1, :string
+    attribute :field_2, :string
+    attribute :field_3, :string
+    attribute :field_4, :string
+    attribute :field_5, :string
+    attribute :field_6, :string
+    attribute :field_7, :string
   end
 
   actions do
@@ -48,6 +48,16 @@ defmodule Example.Project.Label do
     update :update do
       # * accept behaves like cast/3 in ecto changesets
       accept [:field_1, :field_2, :field_3, :field_4, :field_5]
+    end
+
+    read :by_id do
+      # This action has one argument :id of type :ci_string
+      argument :project_id, :uuid, allow_nil?: false
+      # Tells us we expect this action to return a single result
+      get? true
+      # Filters the `:id` given in the argument
+      # against the `id` of each element in the resource
+      filter expr(project_id == ^arg(:project_id))
     end
   end
 end
