@@ -55,15 +55,15 @@ defmodule ExampleWeb.Project1Live.FormComponent do
     # dbg(socket.assigns)
 
     result = %{
-      field_1: nil,
-      field_2: nil,
-      field_3: nil,
-      field_4: nil,
-      field_5: nil,
-      field_6: nil,
-      field_7: nil,
-      field_8: nil,
-      field_9: nil
+      field_1: "Choose Project Name",
+      field_2: "Choose Project Name",
+      field_3: "Choose Project Name",
+      field_4: "Choose Project Name",
+      field_5: "Choose Project Name",
+      field_6: "Choose Project Name",
+      field_7: "Choose Project Name",
+      field_8: "Choose Project Name",
+      field_9: "Choose Project Name"
     }
 
     {:ok,
