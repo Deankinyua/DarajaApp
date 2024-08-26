@@ -47,6 +47,7 @@
                         'Elixir.ExampleWeb.LiveUserAuth',
                         'Elixir.ExampleWeb.PageController',
                         'Elixir.ExampleWeb.PageHTML',
+                        'Elixir.ExampleWeb.Project1Live.FilterComponent',
                         'Elixir.ExampleWeb.Project1Live.FormComponent',
                         'Elixir.ExampleWeb.Project1Live.Index',
                         'Elixir.ExampleWeb.Project1Live.Show',

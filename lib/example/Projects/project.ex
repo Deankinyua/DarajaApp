@@ -14,6 +14,7 @@ defmodule Example.Project do
       # <Function> <Action>
       define :add_data, action: :create
       define :update_data, action: :update
+      define :read_data, action: :read
     end
   end
 end

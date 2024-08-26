@@ -1,6 +1,6 @@
 defmodule ExampleWeb.Project1Live.FormComponent do
   use ExampleWeb, :live_component
-  alias ExampleWeb.LabelLive.FormComponent
+  import ExampleWeb.LabelLive.FormComponent
 
   alias Example.ProjectGeneral
 
@@ -71,7 +71,7 @@ defmodule ExampleWeb.Project1Live.FormComponent do
      |> assign(assigns)
      |> assign(result: result)
      |> fetch_promoters()
-     |> FormComponent.fetch_projects()
+     |> fetch_projects()
      |> fetch_outlets()
      |> assign_form()}
   end

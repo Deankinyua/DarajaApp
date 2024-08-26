@@ -1,7 +1,7 @@
 defmodule ExampleWeb.Project1Live.Index do
   use ExampleWeb, :live_view
 
-  alias Example.Accounts
+  import ExampleWeb.LabelLive.FormComponent
 
   @impl true
   def render(assigns) do
@@ -15,33 +15,13 @@ defmodule ExampleWeb.Project1Live.Index do
       </:actions>
     </.header>
 
-    <.table
-      id="outlets"
-      rows={@streams.project1}
-      row_click={fn {_id, record} -> JS.navigate(~p"/outlets/#{record}") end}
-    >
-      <:col :let={{_id, record}} label="Ambassador Name">
-        <%= Accounts.get_user_by_id!(record.ambassador_id).name %>
-      </:col>
-      <:col :let={{_id, record}} label="Nivea Radiant">
-        <%= record.field_1 %>
-      </:col>
-      <:col :let={{_id, record}} label="Nivea Cocoa">
-        <%= record.field_2 %>
-      </:col>
-      <:col :let={{_id, record}} label="Nivea Shea Nourishing">
-        <%= record.field_3 %>
-      </:col>
-      <:col :let={{_id, record}} label="Nivea Even Glow">
-        <%= record.field_4 %>
-      </:col>
-      <:col :let={{_id, record}} label="Nivea Repair and Care">
-        <%= record.field_5 %>
-      </:col>
-      <:col :let={{_id, record}} label="Total Sales">
-        <%= record.total_sales %>
-      </:col>
-    </.table>
+    <.live_component
+      module={ExampleWeb.Project1Live.FilterComponent}
+      id={(@project1 && @project1.id) || :refer}
+      current_user={@current_user}
+      project1={@project1}
+      project_selector={@project_selector}
+    />
 
     <.modal
       :if={@live_action in [:new, :edit]}
@@ -70,6 +50,7 @@ defmodule ExampleWeb.Project1Live.Index do
        :project1,
        Ash.read!(Example.Project.Project1, actor: socket.assigns[:current_user])
      )
+     |> fetch_projects()
      |> assign_new(:current_user, fn -> nil end)}
   end
 
@@ -99,3 +80,13 @@ defmodule ExampleWeb.Project1Live.Index do
     |> assign(:project1, nil)
   end
 end
+
+# <.simple_form
+# for={@form}
+# id="project_filtered-form"
+# phx-target={@myself}
+# phx-change="validate"
+# >
+
+# <.input type="select" field={@form[:project_id]} options={@project_selector} label="Project Name" />
+# </.simple_form>
