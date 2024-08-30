@@ -33,6 +33,11 @@ defmodule ExampleWeb.LabelLive.FormComponent do
             type="text"
             label="Field 4"
           /><.input field={@form[:field_5]} type="text" label="Field 5" />
+          <.input field={@form[:field_6]} type="text" label="Field 6" />
+          <.input field={@form[:field_7]} type="text" label="Field 7" />
+          <.input field={@form[:field_8]} type="text" label="Field 8" />
+          <.input field={@form[:field_9]} type="text" label="Field 9" />
+          <.input field={@form[:field_10]} type="text" label="Field 10" />
         <% end %>
         <%= if @form.source.type == :update do %>
           <.input field={@form[:field_1]} type="text" label="Field 1" /><.input
@@ -81,6 +86,9 @@ defmodule ExampleWeb.LabelLive.FormComponent do
   end
 
   def handle_event("save", %{"label" => label_params}, socket) do
+    # label_params = change_empty_to_nil(label_params)
+    dbg(label_params)
+
     case AshPhoenix.Form.submit(socket.assigns.form, params: label_params) do
       {:ok, label} ->
         notify_parent({:saved, label})
@@ -99,6 +107,15 @@ defmodule ExampleWeb.LabelLive.FormComponent do
         {:noreply, assign(socket, form: form)}
     end
   end
+
+  # defp change_empty_to_nil(label_params) do
+  #   empty = Enum.filter(label_params, fn {_key, value} -> value == "" end)
+
+  #   collectable = Enum.into(empty, %{}, fn {key, val} -> {key, val = nil} end)
+
+  #   label_params = Map.merge(label_params, collectable)
+  #   label_params
+  # end
 
   defp notify_parent(msg), do: send(self(), {__MODULE__, msg})
 

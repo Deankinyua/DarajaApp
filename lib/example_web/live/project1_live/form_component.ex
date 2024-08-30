@@ -2,6 +2,10 @@ defmodule ExampleWeb.Project1Live.FormComponent do
   use ExampleWeb, :live_component
   import ExampleWeb.LabelLive.FormComponent
 
+  # alias Phoenix.LiveView.JS
+
+  # JS.add_class("hidden")
+
   alias Example.ProjectGeneral
 
   alias Example.Accounts
@@ -31,16 +35,37 @@ defmodule ExampleWeb.Project1Live.FormComponent do
           label="Project Name"
         />
 
-        <.input field={@form[:field_1]} type="number" label={@result.field_1} /><.input
-          field={@form[:field_2]}
-          type="number"
-          label={@result.field_2}
-        /><.input field={@form[:field_3]} type="number" label={@result.field_3} /><.input
-          field={@form[:field_4]}
-          type="number"
-          label={@result.field_4}
-        />
-        <.input field={@form[:field_5]} type="number" label={@result.field_5} />
+        <div class={get_class(@result.field_1)}>
+          <.input field={@form[:field_1]} type="number" label={@result.field_1} />
+        </div>
+        <div class={get_class(@result.field_2)}>
+          <.input field={@form[:field_2]} type="number" label={@result.field_2} />
+        </div>
+        <div class={get_class(@result.field_3)}>
+          <.input field={@form[:field_3]} type="number" label={@result.field_3} />
+        </div>
+        <div class={get_class(@result.field_4)}>
+          <.input field={@form[:field_4]} type="number" label={@result.field_4} />
+        </div>
+        <div class={get_class(@result.field_5)}>
+          <.input field={@form[:field_5]} type="number" label={@result.field_5} />
+        </div>
+
+        <div class={get_class(@result.field_6)}>
+          <.input field={@form[:field_6]} type="number" label={@result.field_6} />
+        </div>
+        <div class={get_class(@result.field_7)}>
+          <.input field={@form[:field_7]} type="number" label={@result.field_7} />
+        </div>
+        <div class={get_class(@result.field_8)}>
+          <.input field={@form[:field_8]} type="number" label={@result.field_8} />
+        </div>
+        <div class={get_class(@result.field_9)}>
+          <.input field={@form[:field_9]} type="number" label={@result.field_9} />
+        </div>
+        <div class={get_class(@result.field_10)}>
+          <.input field={@form[:field_10]} type="number" label={@result.field_10} />
+        </div>
 
         <:actions>
           <.button phx-disable-with="Saving...">Save Your Report</.button>
@@ -63,7 +88,8 @@ defmodule ExampleWeb.Project1Live.FormComponent do
       field_6: "Choose Project Name",
       field_7: "Choose Project Name",
       field_8: "Choose Project Name",
-      field_9: "Choose Project Name"
+      field_9: "Choose Project Name",
+      field_10: "Choose Project Name"
     }
 
     {:ok,
@@ -74,6 +100,10 @@ defmodule ExampleWeb.Project1Live.FormComponent do
      |> fetch_projects()
      |> fetch_outlets()
      |> assign_form()}
+  end
+
+  def get_class(attribute) do
+    if attribute == nil, do: "hidden"
   end
 
   defp fetch_promoters(socket) do
@@ -115,6 +145,7 @@ defmodule ExampleWeb.Project1Live.FormComponent do
 
   @impl true
   def handle_event("validate", %{"project1" => project1_params}, socket) do
+    dbg(project1_params)
     project_id = project1_params["project_id"]
 
     result = ProjectGeneral.get_template_by_project_id!(project_id)
@@ -151,6 +182,8 @@ defmodule ExampleWeb.Project1Live.FormComponent do
 
   def get_complete_params(params) do
     new_map = Map.drop(params, ["ambassador_id", "outlet_id", "project_id"])
+
+    new_map = Enum.filter(new_map, fn {_key, value} -> value != "" end)
     list_num = Enum.map(new_map, fn {_k, v} -> v end)
 
     list_final = Enum.map(list_num, fn x -> String.to_integer(x) end)

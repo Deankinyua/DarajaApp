@@ -45,6 +45,21 @@ defmodule ExampleWeb.Project1Live.FilterComponent do
           <:col :let={{_id, record}} label={@result.field_5}>
             <%= record.field_5 %>
           </:col>
+          <:col :let={{_id, record}} label={@result.field_6}>
+            <%= record.field_6 %>
+          </:col>
+          <:col :let={{_id, record}} label={@result.field_7}>
+            <%= record.field_7 %>
+          </:col>
+          <:col :let={{_id, record}} label={@result.field_8}>
+            <%= record.field_8 %>
+          </:col>
+          <:col :let={{_id, record}} label={@result.field_9}>
+            <%= record.field_9 %>
+          </:col>
+          <:col :let={{_id, record}} label={@result.field_10}>
+            <%= record.field_10 %>
+          </:col>
           <:col :let={{_id, record}} label="Total Sales">
             <%= record.total_sales %>
           </:col>
@@ -67,7 +82,8 @@ defmodule ExampleWeb.Project1Live.FilterComponent do
       field_6: "field 6",
       field_7: "field 7",
       field_8: "field 8",
-      field_9: "field 9"
+      field_9: "field 9",
+      field_10: "field 10"
     }
 
     {:ok,

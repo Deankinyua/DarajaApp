@@ -24,6 +24,13 @@ defmodule ExampleWeb.LabelLive.Index do
       <:col :let={{_id, label}} label="Field 3"><%= label.field_3 %></:col>
       <:col :let={{_id, label}} label="Field 4"><%= label.field_4 %></:col>
       <:col :let={{_id, label}} label="Field 5"><%= label.field_5 %></:col>
+      <:col :let={{_id, label}} label="Field 6"><%= label.field_6 %></:col>
+      <:col :let={{_id, label}} label="Field 7"><%= label.field_7 %></:col>
+      <:col :let={{_id, label}} label="Field 8"><%= label.field_8 %></:col>
+      <:col :let={{_id, label}} label="Field 9"><%= label.field_9 %></:col>
+      <:col :let={{_id, label}} label="Field 10">
+        <%= label.field_10 %>
+      </:col>
     </.table>
 
     <.modal
