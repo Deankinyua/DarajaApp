@@ -24,20 +24,26 @@ defmodule ExampleWeb.LabelLive.FormComponent do
             options={@project_selector}
             label="Project Name"
           />
-          <.input field={@form[:field_1]} type="text" label="Field 1" /><.input
-            field={@form[:field_2]}
-            type="text"
-            label="Field 2"
-          /><.input field={@form[:field_3]} type="text" label="Field 3" /><.input
-            field={@form[:field_4]}
-            type="text"
-            label="Field 4"
-          /><.input field={@form[:field_5]} type="text" label="Field 5" />
+          <.input field={@form[:field_1]} type="text" label="Field 1" />
+          <.input field={@form[:field_2]} type="text" label="Field 2" />
+          <.input field={@form[:field_3]} type="text" label="Field 3" />
+          <.input field={@form[:field_4]} type="text" label="Field 4" />
+          <.input field={@form[:field_5]} type="text" label="Field 5" />
           <.input field={@form[:field_6]} type="text" label="Field 6" />
           <.input field={@form[:field_7]} type="text" label="Field 7" />
           <.input field={@form[:field_8]} type="text" label="Field 8" />
           <.input field={@form[:field_9]} type="text" label="Field 9" />
           <.input field={@form[:field_10]} type="text" label="Field 10" />
+          <.input field={@form[:field_11]} type="text" label="Field 11" />
+          <.input field={@form[:field_12]} type="text" label="Field 12" />
+          <.input field={@form[:field_13]} type="text" label="Field 13" />
+          <.input field={@form[:field_14]} type="text" label="Field 14" />
+          <.input field={@form[:field_15]} type="text" label="Field 15" />
+          <.input field={@form[:field_16]} type="text" label="Field 16" />
+          <.input field={@form[:field_17]} type="text" label="Field 17" />
+          <.input field={@form[:field_18]} type="text" label="Field 18" />
+          <.input field={@form[:field_19]} type="text" label="Field 19" />
+          <.input field={@form[:field_20]} type="text" label="Field 20" />
         <% end %>
         <%= if @form.source.type == :update do %>
           <.input field={@form[:field_1]} type="text" label="Field 1" /><.input

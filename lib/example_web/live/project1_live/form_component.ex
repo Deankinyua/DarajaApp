@@ -66,6 +66,36 @@ defmodule ExampleWeb.Project1Live.FormComponent do
         <div class={get_class(@result.field_10)}>
           <.input field={@form[:field_10]} type="number" label={@result.field_10} />
         </div>
+        <div class={get_class(@result.field_11)}>
+          <.input field={@form[:field_11]} type="number" label={@result.field_11} />
+        </div>
+        <div class={get_class(@result.field_12)}>
+          <.input field={@form[:field_12]} type="number" label={@result.field_12} />
+        </div>
+        <div class={get_class(@result.field_13)}>
+          <.input field={@form[:field_13]} type="number" label={@result.field_13} />
+        </div>
+        <div class={get_class(@result.field_14)}>
+          <.input field={@form[:field_14]} type="number" label={@result.field_14} />
+        </div>
+        <div class={get_class(@result.field_15)}>
+          <.input field={@form[:field_15]} type="number" label={@result.field_15} />
+        </div>
+        <div class={get_class(@result.field_16)}>
+          <.input field={@form[:field_16]} type="number" label={@result.field_16} />
+        </div>
+        <div class={get_class(@result.field_17)}>
+          <.input field={@form[:field_17]} type="number" label={@result.field_17} />
+        </div>
+        <div class={get_class(@result.field_18)}>
+          <.input field={@form[:field_18]} type="number" label={@result.field_18} />
+        </div>
+        <div class={get_class(@result.field_19)}>
+          <.input field={@form[:field_19]} type="number" label={@result.field_19} />
+        </div>
+        <div class={get_class(@result.field_20)}>
+          <.input field={@form[:field_20]} type="number" label={@result.field_20} />
+        </div>
 
         <:actions>
           <.button phx-disable-with="Saving...">Save Your Report</.button>
@@ -89,7 +119,17 @@ defmodule ExampleWeb.Project1Live.FormComponent do
       field_7: "Choose Project Name",
       field_8: "Choose Project Name",
       field_9: "Choose Project Name",
-      field_10: "Choose Project Name"
+      field_10: "Choose Project Name",
+      field_11: "Choose Project Name",
+      field_12: "Choose Project Name",
+      field_13: "Choose Project Name",
+      field_14: "Choose Project Name",
+      field_15: "Choose Project Name",
+      field_16: "Choose Project Name",
+      field_17: "Choose Project Name",
+      field_18: "Choose Project Name",
+      field_19: "Choose Project Name",
+      field_20: "Choose Project Name"
     }
 
     {:ok,
