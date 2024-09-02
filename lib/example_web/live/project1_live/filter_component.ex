@@ -174,3 +174,7 @@ defmodule ExampleWeb.Project1Live.FilterComponent do
     }
   end
 end
+
+# https://swimm.io/learn/large-language-models/llm-context-windows-basics-examples-and-prompting-best-practices
+
+# https://www.swebench.com/

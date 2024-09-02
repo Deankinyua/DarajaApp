@@ -2,10 +2,6 @@ defmodule ExampleWeb.Project1Live.FormComponent do
   use ExampleWeb, :live_component
   import ExampleWeb.LabelLive.FormComponent
 
-  # alias Phoenix.LiveView.JS
-
-  # JS.add_class("hidden")
-
   alias Example.ProjectGeneral
 
   alias Example.Accounts
@@ -146,7 +142,7 @@ defmodule ExampleWeb.Project1Live.FormComponent do
     if attribute == nil, do: "hidden"
   end
 
-  defp fetch_promoters(socket) do
+  def fetch_promoters(socket) do
     query_results =
       Example.Activation.Ambassador
       |> Ash.Query.load([])
@@ -170,7 +166,7 @@ defmodule ExampleWeb.Project1Live.FormComponent do
   #   socket |> assign(promoter_selector: ambassador_selector(promoters))
   # end
 
-  defp fetch_outlets(socket) do
+  def fetch_outlets(socket) do
     query_results =
       Example.Outlet.Shop
       |> Ash.Query.load([])

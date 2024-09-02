@@ -78,6 +78,13 @@ defmodule ExampleWeb.Router do
 
       live "/outlets/:id", ShopLive.Show, :show
       live "/outlets/:id/show/edit", ShopLive.Show, :edit
+
+      live "/registryz", RegistryLive.Index, :index
+      live "/registryz/new", RegistryLive.Index, :new
+      live "/registryz/:id/edit", RegistryLive.Index, :edit
+
+      live "/registryz/:id", RegistryLive.Show, :show
+      live "/registryz/:id/show/edit", RegistryLive.Show, :edit
     end
 
     # add these lines -->
