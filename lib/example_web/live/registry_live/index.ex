@@ -21,11 +21,16 @@ defmodule ExampleWeb.RegistryLive.Index do
       rows={@streams.registryz}
       row_click={fn {_id, registry} -> JS.navigate(~p"/registryz/#{registry}") end}
     >
-      <:col :let={{_id, registry}} label="Ambassador Name"><%= Accounts.get_user_by_id!(registry.ambassador_id).name %></:col>
-      <:col :let={{_id, registry}} label="Project Name"><%= ProjectGeneral.get_project_by_id!(registry.project_id).name %></:col>
-      <:col :let={{_id, registry}} label="Outlet Name"><%= Outlet.get_outlet!(registry.outlet_id).name %></:col>
+      <:col :let={{_id, registry}} label="Ambassador Name">
+        <%= Accounts.get_user_by_id!(registry.ambassador_id).name %>
+      </:col>
+      <:col :let={{_id, registry}} label="Project Name">
+        <%= ProjectGeneral.get_project_by_id!(registry.project_id).name %>
+      </:col>
+      <:col :let={{_id, registry}} label="Outlet Name">
+        <%= Outlet.get_outlet!(registry.outlet_id).name %>
+      </:col>
       <:col :let={{_id, registry}} label="Days Worked"><%= registry.days_worked %></:col>
-
 
       <:action :let={{_id, registry}}>
         <div class="sr-only">
