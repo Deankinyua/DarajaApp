@@ -24,6 +24,8 @@ defmodule Example.ProjectGeneral.Project do
       description "The name of the project"
       allow_nil? false
     end
+
+    attribute :is_freezed, :boolean, default: false, allow_nil?: false
   end
 
   actions do
@@ -40,7 +42,8 @@ defmodule Example.ProjectGeneral.Project do
 
     create :new do
       accept [
-        :name
+        :name,
+        :is_freezed
       ]
 
       # Whether or not this action should be used when no action is specified by the caller.
@@ -57,7 +60,7 @@ defmodule Example.ProjectGeneral.Project do
     end
 
     update :update_project do
-      accept [:name]
+      accept [:name, :is_freezed]
       primary? true
     end
 

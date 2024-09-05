@@ -142,7 +142,7 @@ defmodule ExampleWeb.LabelLive.FormComponent do
     assign(socket, form: to_form(form))
   end
 
-  def project_selector(projects) do
+  defp project_selector(projects) do
     for item <- projects do
       {item.name, item.id}
     end

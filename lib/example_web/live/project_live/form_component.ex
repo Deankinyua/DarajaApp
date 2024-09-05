@@ -17,7 +17,20 @@ defmodule ExampleWeb.ProjectLive.FormComponent do
         phx-change="validate"
         phx-submit="save"
       >
-        <.input field={@form[:name]} type="text" label="Name" />
+        <%= if @form.source.type == :create do %>
+          <.input field={@form[:name]} type="text" label="Name" />
+        <% end %>
+
+        <%= if @form.source.type == :update do %>
+          <.input field={@form[:name]} type="text" label="Name" />
+
+          <.input
+            field={@form[:is_freezed]}
+            type="select"
+            options={@freeze_selector}
+            label="Is_Freezed"
+          />
+        <% end %>
 
         <:actions>
           <.button phx-disable-with="Saving...">Save Project</.button>
@@ -32,7 +45,12 @@ defmodule ExampleWeb.ProjectLive.FormComponent do
     {:ok,
      socket
      |> assign(assigns)
+     |> freeze_selector()
      |> assign_form()}
+  end
+
+  defp freeze_selector(socket) do
+    socket |> assign(freeze_selector: [true, false])
   end
 
   @impl true

@@ -19,6 +19,7 @@ defmodule ExampleWeb.ProjectLive.Index do
       row_click={fn {_id, project} -> JS.navigate(~p"/projects/#{project}") end}
     >
       <:col :let={{_id, project}} label="Project Name"><%= project.name %></:col>
+      <:col :let={{_id, project}} label="Freezed"><%= project.is_freezed %></:col>
 
       <:action :let={{_id, project}}>
         <div class="sr-only">

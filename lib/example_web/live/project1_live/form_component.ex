@@ -1,6 +1,5 @@
 defmodule ExampleWeb.Project1Live.FormComponent do
   use ExampleWeb, :live_component
-  import ExampleWeb.LabelLive.FormComponent
 
   alias Example.ProjectGeneral
 
@@ -133,7 +132,7 @@ defmodule ExampleWeb.Project1Live.FormComponent do
      |> assign(assigns)
      |> assign(result: result)
      |> fetch_promoters()
-     |> fetch_projects()
+     |> fetch_projects_unfreezed()
      |> fetch_outlets()
      |> assign_form()}
   end
@@ -259,6 +258,26 @@ defmodule ExampleWeb.Project1Live.FormComponent do
       user = Accounts.get_user_by_id!(item.ambassador_id)
 
       {user.name, item.ambassador_id}
+    end
+  end
+
+  def fetch_projects_unfreezed(socket) do
+    query_results =
+      Example.ProjectGeneral.Project
+      |> Ash.Query.load([])
+      # |> Ash.Query.for_read(:by_user_id, %{id: socket.assigns.current_user.id})
+      |> Ash.read!(page: [limit: 20])
+
+    projects = Map.get(query_results, :results)
+
+    projects = Enum.filter(projects, fn x -> x.is_freezed == false end)
+
+    socket |> assign(project_selector: project_selector(projects))
+  end
+
+  defp project_selector(projects) do
+    for item <- projects do
+      {item.name, item.id}
     end
   end
 end
