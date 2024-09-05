@@ -146,7 +146,6 @@ defmodule ExampleWeb.Project1Live.FormComponent do
     query_results =
       Example.Activation.Ambassador
       |> Ash.Query.load([])
-      # |> Ash.Query.for_read(:by_user_id, %{id: socket.assigns.current_user.id})
       |> Ash.read!(page: [limit: 20])
 
     promoters = Map.get(query_results, :results)

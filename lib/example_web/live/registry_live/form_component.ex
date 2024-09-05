@@ -37,7 +37,12 @@ defmodule ExampleWeb.RegistryLive.FormComponent do
           />
         <% end %>
         <%= if @form.source.type == :update do %>
-          <.input field={@form[:ambassador_id]} type="text" label="Ambassador" />
+          <.input
+            field={@form[:should_activate]}
+            type="select"
+            options={@activate_selector}
+            label="Should Activate"
+          />
         <% end %>
 
         <:actions>
@@ -56,7 +61,12 @@ defmodule ExampleWeb.RegistryLive.FormComponent do
      |> fetch_promoters()
      |> fetch_projects()
      |> fetch_outlets()
+     |> activate_selector()
      |> assign_form()}
+  end
+
+  defp activate_selector(socket) do
+    socket |> assign(activate_selector: [true, false])
   end
 
   @impl true

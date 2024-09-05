@@ -31,6 +31,7 @@ defmodule ExampleWeb.RegistryLive.Index do
         <%= Outlet.get_outlet!(registry.outlet_id).name %>
       </:col>
       <:col :let={{_id, registry}} label="Days Worked"><%= registry.days_worked %></:col>
+      <:col :let={{_id, registry}} label="Should Activate"><%= registry.should_activate %></:col>
 
       <:action :let={{_id, registry}}>
         <div class="sr-only">

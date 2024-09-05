@@ -36,6 +36,7 @@ defmodule Example.Project.Registry do
     end
 
     attribute :days_worked, :integer, default: 0, allow_nil?: false
+    attribute :should_activate, :boolean, default: false, allow_nil?: false
   end
 
   actions do
@@ -48,7 +49,8 @@ defmodule Example.Project.Registry do
         :project_id,
         :ambassador_id,
         :outlet_id,
-        :days_worked
+        :days_worked,
+        :should_activate
       ]
     end
 
@@ -56,8 +58,8 @@ defmodule Example.Project.Registry do
       # * accept behaves like cast/3 in ecto changesets
 
       accept [
-        :ambassador_id,
-        :days_worked
+        :days_worked,
+        :should_activate
       ]
     end
 
