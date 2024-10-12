@@ -65,12 +65,13 @@ defmodule Example.Project.Registry do
 
     read :by_id do
       # This action has one argument :id of type :ci_string
-      argument :id, :uuid, allow_nil?: false
+      argument :ambassador_id, :uuid, allow_nil?: false
       # Tells us we expect this action to return a single result
-      get? true
+      get? false
       # Filters the `:id` given in the argument
       # against the `id` of each element in the resource
-      filter expr(id == ^arg(:id))
+      filter expr(ambassador_id == ^arg(:ambassador_id))
+      filter expr(should_activate == true)
     end
   end
 end

@@ -1,7 +1,7 @@
 defmodule ExampleWeb.RegistryLive.FormComponent do
   use ExampleWeb, :live_component
 
-  import ExampleWeb.Project1Live.FormComponent, only: [fetch_promoters: 1, fetch_outlets: 1]
+  import ExampleWeb.Project1Live.FormComponent, only: [ambassador_selector: 1, fetch_outlets: 1]
 
   import ExampleWeb.LabelLive.FormComponent, only: [fetch_projects: 1]
 
@@ -67,6 +67,17 @@ defmodule ExampleWeb.RegistryLive.FormComponent do
 
   defp activate_selector(socket) do
     socket |> assign(activate_selector: [true, false])
+  end
+
+  defp fetch_promoters(socket) do
+    query_results =
+      Example.Activation.Ambassador
+      |> Ash.Query.load([])
+      |> Ash.read!(page: [limit: 20])
+
+    promoters = Map.get(query_results, :results)
+
+    socket |> assign(promoter_selector: ambassador_selector(promoters))
   end
 
   @impl true

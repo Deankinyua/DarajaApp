@@ -1,6 +1,8 @@
 defmodule ExampleWeb.Project1Live.FormComponent do
   use ExampleWeb, :live_component
 
+  require Ash.Query
+
   alias Example.ProjectGeneral
 
   alias Example.Accounts
@@ -143,7 +145,8 @@ defmodule ExampleWeb.Project1Live.FormComponent do
 
   def fetch_promoters(socket) do
     query_results =
-      Example.Activation.Ambassador
+      Example.Project.Registry
+      |> Ash.Query.filter(should_activate: true)
       |> Ash.Query.load([])
       |> Ash.read!(page: [limit: 20])
 
@@ -179,8 +182,10 @@ defmodule ExampleWeb.Project1Live.FormComponent do
 
   @impl true
   def handle_event("validate", %{"project1" => project1_params}, socket) do
-    dbg(project1_params)
     project_id = project1_params["project_id"]
+    ambassador_id = project1_params["ambassador_id"]
+
+    dbg(ambassador_id)
 
     result = ProjectGeneral.get_template_by_project_id!(project_id)
 
@@ -194,23 +199,31 @@ defmodule ExampleWeb.Project1Live.FormComponent do
 
   def handle_event("save", %{"project1" => project1_params}, socket) do
     project1_params = get_complete_params(project1_params)
-    # dbg(project1_params)
-    dbg(socket.assigns.form)
-    # dbg(socket.assigns)
+    ambassador_id = project1_params["ambassador_id"]
+    outlet_id = project1_params["outlet_id"]
+    project_id = project1_params["project_id"]
+    user = Example.Project.get_user_by_id!(ambassador_id)
 
-    case AshPhoenix.Form.submit(socket.assigns.form, params: project1_params) do
-      {:ok, project1} ->
-        notify_parent({:saved, project1})
+    if outlet_id == user.outlet_id && project_id == user.project_id do
+      case AshPhoenix.Form.submit(socket.assigns.form, params: project1_params) do
+        {:ok, project1} ->
+          notify_parent({:saved, project1})
 
-        socket =
-          socket
-          |> put_flash(:info, "Project1 #{socket.assigns.form.source.type}d successfully")
-          |> push_patch(to: socket.assigns.patch)
+          socket =
+            socket
+            |> put_flash(:info, "Your Report has been received successfully")
+            |> push_patch(to: socket.assigns.patch)
 
-        {:noreply, socket}
+          {:noreply, socket}
 
-      {:error, form} ->
-        {:noreply, assign(socket, form: form)}
+        {:error, form} ->
+          {:noreply, assign(socket, form: form)}
+      end
+    else
+      {:noreply,
+       socket
+       |> push_patch(to: socket.assigns.patch)
+       |> put_flash(:error, "Report Not Submitted!! Please enter the correct details")}
     end
   end
 
@@ -253,7 +266,7 @@ defmodule ExampleWeb.Project1Live.FormComponent do
     end
   end
 
-  defp ambassador_selector(ambassadors) do
+  def ambassador_selector(ambassadors) do
     for item <- ambassadors do
       user = Accounts.get_user_by_id!(item.ambassador_id)
 
