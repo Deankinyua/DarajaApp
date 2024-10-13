@@ -63,11 +63,19 @@ defmodule Example.Project.Registry do
       ]
     end
 
+    # update :update_day do
+    #   # This action has one argument :id of type :ci_string
+    #   argument :days_worked, :integer, allow_nil?: false
+    #   # Tells us we expect this action to return a single result
+    #   get? true
+
+    # end
+
     read :by_id do
       # This action has one argument :id of type :ci_string
       argument :ambassador_id, :uuid, allow_nil?: false
       # Tells us we expect this action to return a single result
-      get? false
+      get? true
       # Filters the `:id` given in the argument
       # against the `id` of each element in the resource
       filter expr(ambassador_id == ^arg(:ambassador_id))

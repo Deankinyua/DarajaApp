@@ -23,7 +23,7 @@ defmodule Example.Project do
       # <Function> <Action>
       define :register_ambassador, action: :create
       define :update_ambassador, action: :update
-      # define :update_ambassador_day, action: :update
+      # define :update_ambassador_day, action: :update_day
       define :read_registry, action: :read
       define :get_user_by_id, args: [:ambassador_id], action: :by_id
     end

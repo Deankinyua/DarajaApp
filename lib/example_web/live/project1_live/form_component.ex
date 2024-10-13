@@ -203,10 +203,22 @@ defmodule ExampleWeb.Project1Live.FormComponent do
     outlet_id = project1_params["outlet_id"]
     project_id = project1_params["project_id"]
     user = Example.Project.get_user_by_id!(ambassador_id)
+    dbg(user)
+
+    user =
+      if is_list(user) do
+        new_user = Enum.at(user, 0)
+        new_user
+      else
+        user
+      end
 
     if outlet_id == user.outlet_id && project_id == user.project_id do
       case AshPhoenix.Form.submit(socket.assigns.form, params: project1_params) do
         {:ok, project1} ->
+          user_params = %{days_worked: user.days_worked + 1}
+
+          Example.Project.update_ambassador(user, user_params)
           notify_parent({:saved, project1})
 
           socket =
