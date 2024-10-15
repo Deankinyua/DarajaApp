@@ -290,12 +290,10 @@ defmodule ExampleWeb.Project1Live.FormComponent do
     query_results =
       Example.ProjectGeneral.Project
       |> Ash.Query.load([])
-      # |> Ash.Query.for_read(:by_user_id, %{id: socket.assigns.current_user.id})
+      |> Ash.Query.filter(is_freezed: false)
       |> Ash.read!(page: [limit: 20])
 
     projects = Map.get(query_results, :results)
-
-    projects = Enum.filter(projects, fn x -> x.is_freezed == false end)
 
     socket |> assign(project_selector: project_selector(projects))
   end
