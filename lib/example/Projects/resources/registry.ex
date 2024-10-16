@@ -83,3 +83,5 @@ defmodule Example.Project.Registry do
     end
   end
 end
+
+# Ash.Resource.Info.attributes(Registry)
