@@ -1,5 +1,5 @@
 {application,splode,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332002},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir,logger]},
               {description,"Splode helps you deal with errors and exceptions in your application that are aggregatable and consistent.\n"},

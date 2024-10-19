@@ -1,14 +1,14 @@
 defmodule Mint.MixProject do
   use Mix.Project
 
-  @version "1.6.0"
+  @version "1.6.2"
   @repo_url "https://github.com/elixir-mint/mint"
 
   def project do
     [
       app: :mint,
       version: @version,
-      elixir: "~> 1.11",
+      elixir: "~> 1.12",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
@@ -18,6 +18,7 @@ defmodule Mint.MixProject do
         exclude: [
           :persistent_term,
           {:ssl, :cipher_suites, 1},
+          {:public_key, :cacerts_get, 0},
           CAStore
         ]
       ],
@@ -72,14 +73,14 @@ defmodule Mint.MixProject do
   defp deps do
     [
       {:castore, "~> 0.1.0 or ~> 1.0", optional: true},
-      {:hpax, "~> 0.1.1 or ~> 0.2.0"},
+      {:hpax, "~> 0.1.1 or ~> 0.2.0 or ~> 1.0"},
 
       # Dev/test dependencies
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.20", only: :dev},
       {:excoveralls, "~> 0.18.0", only: :test},
       {:mox, "~> 1.0", only: :test},
-      {:stream_data, "~> 0.6.0", only: [:dev, :test]}
+      {:stream_data, "~> 1.0", only: [:dev, :test]}
     ]
   end
 end

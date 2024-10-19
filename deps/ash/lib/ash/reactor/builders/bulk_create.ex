@@ -27,6 +27,8 @@ defimpl Reactor.Dsl.Build, for: Ash.Reactor.Dsl.BulkCreate do
         [initial, notification_metadata]
         |> maybe_append(bulk_create.actor)
         |> maybe_append(bulk_create.tenant)
+        |> maybe_append(bulk_create.load)
+        |> maybe_append(bulk_create.context)
         |> Enum.concat(bulk_create.wait_for)
 
       action_options =
@@ -80,10 +82,6 @@ defimpl Reactor.Dsl.Build, for: Ash.Reactor.Dsl.BulkCreate do
       )
     end
   end
-
-  @doc false
-  @impl true
-  def transform(_bulk_create, dsl_state), do: {:ok, dsl_state}
 
   @doc false
   @impl true

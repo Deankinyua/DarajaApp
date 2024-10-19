@@ -9,7 +9,7 @@ defmodule Ash.Policy.Info do
 
   @doc "Whether or not Ash policy authorizer is configured to show policy breakdowns in error messages"
   def show_policy_breakdowns? do
-    Application.get_env(:ash, :policies)[:show_policy_breakdowns?] || false
+    Keyword.get(Application.get_env(:ash, :policies, []), :show_policy_breakdowns?, false)
   end
 
   @doc "Whether or not Ash policy authorizer is configured to log policy breakdowns"
@@ -143,6 +143,18 @@ defmodule Ash.Policy.Info do
     |> set_access_type(default_access_type(resource))
   end
 
+  @private_fields_policy_default Application.compile_env(:ash, :policies)[:private_fields] ||
+                                   :show
+
+  def private_fields_policy(resource) do
+    Extension.get_opt(
+      resource,
+      [:field_policies],
+      :private_fields,
+      @private_fields_policy_default
+    )
+  end
+
   def policies(domain, resource) do
     if domain do
       do_policies(domain) ++ do_policies(resource)
@@ -154,7 +166,22 @@ defmodule Ash.Policy.Info do
   defp do_policies(resource) do
     resource
     |> Extension.get_entities([:policies])
+    |> flatten_groups()
     |> set_access_type(default_access_type(resource))
+  end
+
+  defp flatten_groups(policies) do
+    Enum.flat_map(policies, fn
+      %Ash.Policy.Policy{} = policy ->
+        [policy]
+
+      %Ash.Policy.PolicyGroup{condition: condition, policies: policies} ->
+        policies
+        |> flatten_groups()
+        |> Enum.map(fn policy ->
+          %{policy | condition: List.wrap(condition) ++ List.wrap(policy.condition)}
+        end)
+    end)
   end
 
   def default_access_type(resource) do
@@ -170,7 +197,6 @@ defmodule Ash.Policy.Info do
          %Ash.Policy.Policy{
            policies: policies,
            condition: conditions,
-           checks: checks,
            access_type: access_type
          } = policy,
          default
@@ -179,7 +205,6 @@ defmodule Ash.Policy.Info do
       policy
       | policies: set_access_type(policies, access_type || default),
         condition: set_access_type(conditions, access_type || default),
-        checks: set_access_type(checks, default),
         access_type: access_type || default
     }
   end

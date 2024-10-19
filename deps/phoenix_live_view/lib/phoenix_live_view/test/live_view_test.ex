@@ -194,19 +194,14 @@ defmodule Phoenix.LiveViewTest do
     Plug.Conn.put_private(conn, :live_view_connect_params, params)
   end
 
-  @deprecated "set the relevant connect_info fields in the connection instead"
-  def put_connect_info(conn, params) when is_map(params) do
-    Plug.Conn.put_private(conn, :live_view_connect_info, params)
-  end
-
   @doc """
   Spawns a connected LiveView process.
 
   If a `path` is given, then a regular `get(conn, path)`
-  is done and the page is upgraded to a `LiveView`. If
+  is done and the page is upgraded to a LiveView. If
   no path is given, it assumes a previously rendered
   `%Plug.Conn{}` is given, which will be converted to
-  a `LiveView` immediately.
+  a LiveView immediately.
 
   ## Examples
 
@@ -452,12 +447,17 @@ defmodule Phoenix.LiveViewTest do
   defmacro render_component(component, assigns \\ Macro.escape(%{}), opts \\ []) do
     endpoint = Module.get_attribute(__CALLER__.module, :endpoint)
 
+    component =
+      if is_atom(component) do
+        quote do
+          unquote(component).__live__()
+          unquote(component)
+        end
+      else
+        component
+      end
+
     quote do
-      component = unquote(component)
-
-      # Emit this line for undefined component warnings
-      if(is_atom(component), do: component.__live__())
-
       Phoenix.LiveViewTest.__render_component__(
         unquote(endpoint),
         unquote(component),
@@ -1308,7 +1308,7 @@ defmodule Phoenix.LiveViewTest do
   The default `timeout` is [ExUnit](https://hexdocs.pm/ex_unit/ExUnit.html#configure/1)'s
   `assert_receive_timeout` (100 ms).
 
-  It always returns `:ok`.
+  It returns the new path.
 
   To assert on the flash message, you can assert on the result of the
   rendered LiveView.

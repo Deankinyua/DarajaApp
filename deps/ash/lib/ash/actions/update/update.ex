@@ -5,6 +5,7 @@ defmodule Ash.Actions.Update do
 
   require Ash.Tracer
   require Logger
+  import Ash.Expr
 
   @spec run(Ash.Domain.t(), Ash.Resource.record(), Ash.Resource.Actions.action(), Keyword.t()) ::
           {:ok, Ash.Resource.record(), list(Ash.Notifier.Notification.t())}
@@ -47,6 +48,8 @@ defmodule Ash.Actions.Update do
                     "#{inspect(changeset.resource)}.atomic_upgrade_with is set to #{atomic_upgrade_with}, which is not a valid action"
         end
 
+      dirty_hooks = changeset.dirty_hooks -- [:after_action]
+
       {fully_atomic_changeset, params} =
         cond do
           !action.require_atomic? && !action.atomic_upgrade? ->
@@ -61,22 +64,9 @@ defmodule Ash.Actions.Update do
           !Enum.empty?(changeset.relationships) ->
             {{:not_atomic, "cannot atomically manage relationships"}, nil}
 
-          !Enum.empty?(changeset.before_action) ->
-            {{:not_atomic, "cannot atomically run a changeset with a before_action hook"}, nil}
-
-          !Enum.empty?(changeset.before_transaction) ->
-            {{:not_atomic, "cannot atomically run a changeset with a before_transaction hook"},
-             nil}
-
-          !Enum.empty?(changeset.around_action) ->
-            {{:not_atomic, "cannot atomically run a changeset with an around_action hook"}, nil}
-
-          !Enum.empty?(changeset.around_transaction) ->
-            {{:not_atomic, "cannot atomically run a changeset with an around_transaction hook"},
-             nil}
-
-          !Enum.empty?(changeset.after_transaction) ->
-            {{:not_atomic, "cannot atomically run a changeset with an after_transaction hook"},
+          !Enum.empty?(dirty_hooks) ->
+            {{:not_atomic,
+              "cannot atomically run a changeset with hooks in any phase other than `after_action`, got hooks in phases #{inspect(dirty_hooks)}"},
              nil}
 
           !atomic_upgrade_read ->
@@ -85,7 +75,7 @@ defmodule Ash.Actions.Update do
              nil}
 
           opts[:atomic_upgrade?] == false ->
-            {{:not_atomic, "atomic upgrade was disabled"}, nil}
+            {{:not_atomic, "atomic upgrade was disabled with opts"}, nil}
 
           true ->
             params =
@@ -104,6 +94,7 @@ defmodule Ash.Actions.Update do
                   context: changeset.context_changes,
                   notify?: true,
                   data: changeset.data,
+                  no_atomic_constraints: changeset.no_atomic_constraints,
                   atomics:
                     Keyword.merge(
                       changeset.atomic_changes,
@@ -112,6 +103,15 @@ defmodule Ash.Actions.Update do
                   tenant: changeset.tenant
                 )
               )
+              |> then(fn atomic_changeset ->
+                Enum.reduce(
+                  changeset.atomic_after_action,
+                  atomic_changeset,
+                  fn after_action, atomic_changeset ->
+                    Ash.Changeset.after_action(atomic_changeset, after_action)
+                  end
+                )
+              end)
 
             {res, params}
         end
@@ -163,6 +163,8 @@ defmodule Ash.Actions.Update do
                  Keyword.merge(opts,
                    strategy: [:atomic, :stream],
                    resource: atomic_changeset.resource,
+                   read_action: atomic_upgrade_read.name,
+                   tenant: atomic_changeset.tenant,
                    authorize_query?: false,
                    return_records?: true,
                    atomic_changeset: atomic_changeset,
@@ -211,21 +213,25 @@ defmodule Ash.Actions.Update do
             changeset = Helpers.apply_opts_load(changeset, opts)
 
             Ash.Tracer.span :action,
-                            Ash.Domain.Info.span_name(
-                              domain,
-                              changeset.resource,
-                              action.name
-                            ),
+                            fn ->
+                              Ash.Domain.Info.span_name(
+                                domain,
+                                changeset.resource,
+                                action.name
+                              )
+                            end,
                             opts[:tracer] do
-              metadata = %{
-                domain: domain,
-                resource: changeset.resource,
-                resource_short_name: Ash.Resource.Info.short_name(changeset.resource),
-                actor: opts[:actor],
-                tenant: opts[:tenant],
-                action: action.name,
-                authorize?: opts[:authorize?]
-              }
+              metadata = fn ->
+                %{
+                  domain: domain,
+                  resource: changeset.resource,
+                  resource_short_name: Ash.Resource.Info.short_name(changeset.resource),
+                  actor: opts[:actor],
+                  tenant: opts[:tenant],
+                  action: action.name,
+                  authorize?: opts[:authorize?]
+                }
+              end
 
               Ash.Tracer.set_metadata(opts[:tracer], :action, metadata)
 
@@ -272,6 +278,8 @@ defmodule Ash.Actions.Update do
     with %{valid?: true} = changeset <- Ash.Changeset.validate_multitenancy(changeset),
          %{valid?: true} = changeset <- changeset(changeset, domain, action, opts),
          %{valid?: true} = changeset <- authorize(changeset, opts),
+         %{valid?: true} = changeset <-
+           Ash.Changeset.add_atomic_validations(changeset, opts[:actor], []),
          {:ok, result, instructions} <- commit(changeset, domain, opts) do
       add_notifications(
         changeset.resource,
@@ -279,7 +287,8 @@ defmodule Ash.Actions.Update do
         changeset.action,
         changeset,
         instructions,
-        opts[:return_notifications?]
+        opts[:return_notifications?],
+        opts[:return_destroyed?]
       )
     end
     |> case do
@@ -315,7 +324,6 @@ defmodule Ash.Actions.Update do
              maybe_is: false
            ) do
         {:ok, true, changeset} ->
-          # foobar
           changeset
 
         {:ok, false, error} ->
@@ -347,10 +355,11 @@ defmodule Ash.Actions.Update do
          action,
          changeset,
          instructions,
-         return_notifications?
+         return_notifications?,
+         return_destroyed?
        ) do
     if return_notifications? do
-      if changeset.action_type == :destroy do
+      if changeset.action_type == :destroy && !return_destroyed? do
         {:ok, Map.get(instructions, :notifications, [])}
       else
         {:ok, result, Map.get(instructions, :notifications, [])}
@@ -358,7 +367,7 @@ defmodule Ash.Actions.Update do
     else
       Helpers.warn_missed!(resource, action, instructions)
 
-      if changeset.action_type == :destroy do
+      if changeset.action_type == :destroy && !return_destroyed? do
         :ok
       else
         {:ok, result}
@@ -401,7 +410,11 @@ defmodule Ash.Actions.Update do
              )}
 
           changeset ->
-            changeset = Ash.Changeset.hydrate_atomic_refs(changeset, opts[:actor])
+            changeset =
+              changeset
+              |> Ash.Changeset.hydrate_atomic_refs(opts[:actor])
+              |> Ash.Changeset.apply_atomic_constraints(opts[:actor])
+              |> Ash.Changeset.set_action_select()
 
             case Ash.Actions.ManagedRelationships.setup_managed_belongs_to_relationships(
                    changeset,
@@ -507,9 +520,21 @@ defmodule Ash.Actions.Update do
                   end
                   |> case do
                     {:ok, result} ->
+                      result =
+                        Helpers.select(result, %{
+                          resource: changeset.resource,
+                          select: changeset.action_select
+                        })
+
                       {:ok, result, %{notifications: manage_instructions.notifications}}
 
                     {:ok, result, notifications} ->
+                      result =
+                        Helpers.select(result, %{
+                          resource: changeset.resource,
+                          select: changeset.action_select
+                        })
+
                       {:ok, result,
                        Map.update!(
                          notifications,
@@ -631,9 +656,17 @@ defmodule Ash.Actions.Update do
       {m, f, a} = Ash.Resource.Info.multitenancy_parse_attribute(changeset.resource)
       attribute_value = apply(m, f, [changeset.to_tenant | a])
 
-      Ash.Changeset.force_change_attribute(changeset, attribute, attribute_value)
+      Ash.Changeset.filter(changeset, expr(^ref(attribute) == ^attribute_value))
     else
-      changeset
+      if is_nil(Ash.Resource.Info.multitenancy_strategy(changeset.resource)) ||
+           Ash.Resource.Info.multitenancy_global?(changeset.resource) || changeset.tenant do
+        changeset
+      else
+        Ash.Changeset.add_error(
+          changeset,
+          Ash.Error.Invalid.TenantRequired.exception(resource: changeset.resource)
+        )
+      end
     end
   end
 end

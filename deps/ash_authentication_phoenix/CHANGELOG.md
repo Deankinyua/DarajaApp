@@ -5,6 +5,148 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v2.1.9](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.1.8...v2.1.9) (2024-10-15)
+
+
+
+
+### Bug Fixes:
+
+* ensure browser pipeline is added to installer
+
+## [v2.1.8](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.1.7...v2.1.8) (2024-10-14)
+
+
+
+
+### Bug Fixes:
+
+* properly parse flag options
+
+## [v2.1.7](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.1.6...v2.1.7) (2024-10-14)
+
+
+
+
+### Improvements:
+
+* set a `group` on install task
+
+## [v2.1.6](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.1.5...v2.1.6) (2024-10-14)
+
+
+
+
+### Bug Fixes:
+
+* don't pass api option to forms
+
+## [v2.1.5](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.1.4...v2.1.5) (2024-10-11)
+
+
+
+
+### Improvements:
+
+* recommend a single ash_authentication_live_session in installer
+
+* log a warning on failure to create a magic link
+
+## [v2.1.4](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.1.3...v2.1.4) (2024-10-08)
+
+
+
+
+### Improvements:
+
+* generate overrides module in installer
+
+## [v2.1.3](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.1.2...v2.1.3) (2024-10-06)
+
+
+
+
+### Improvements:
+
+* `mix igniter.install ash_authentication_phoenix` (#504)
+
+## [v2.1.2](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.1.1...v2.1.2) (2024-09-23)
+
+
+
+
+### Bug Fixes:
+
+* apply `auth_routes_prefix` logic to `reset_route` as well
+
+## [v2.1.1](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.1.0...v2.1.1) (2024-09-03)
+
+
+
+
+### Bug Fixes:
+
+* ensure that params are sent when using route helpers
+
+## [v2.1.0](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.0.2...v2.1.0) (2024-09-01)
+
+
+
+
+### Features:
+
+* Dynamic Router + compile time dependency fixes (#487)
+
+### Bug Fixes:
+
+* check strategy module instead of name
+
+* ensure path params are processed on strategy router
+
+* Re-link form labels and form inputs on Password strategy forms (#494)
+
+* Restore linkage between form inputs and form fields on Password strategy form
+
+* Use separate override labels for Password and Password Confirmation fields
+
+* only scope reset/register paths if they are set
+
+* Ensure session respects router scope when using sign_in_route helper (#490)
+
+### Improvements:
+
+* add button for the Apple strategy (#482)
+
+* add apple component
+
+* pass context down to all actions
+
+* create a new dynamic router, and avoid other compile time dependencies
+
+## [v2.0.2](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.0.1...v2.0.2) (2024-08-05)
+
+
+
+
+### Bug Fixes:
+
+* use any overridden value, including `nil` or `false` (#476)
+
+* set tenant in sign_in and reset_route (#478)
+
+### Improvements:
+
+* Added overrides for identity (email) and password fields.  (#477)
+
+## [v2.0.1](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.0.0...v2.0.1) (2024-07-10)
+
+
+
+
+### Improvements:
+
+* fix deprecation warnings about live_flash/2.
+
 ## [v2.0.0](https://github.com/team-alembic/ash_authentication_phoenix/compare/v2.0.0-rc.3...v2.0.0) (2024-05-10)
 
 

@@ -20,6 +20,14 @@ defmodule HPAX do
   alias HPAX.{Table, Types}
 
   @typedoc """
+  An HPACK table.
+
+  This can be used for encoding or decoding.
+  """
+  @typedoc since: "0.2.0"
+  @opaque table() :: Table.t()
+
+  @typedoc """
   An HPACK header name.
   """
   @type header_name() :: binary()
@@ -32,20 +40,45 @@ defmodule HPAX do
   @valid_header_actions [:store, :store_name, :no_store, :never_store]
 
   @doc """
+  Creates a new HPACK table.
+
+  Same as `new/2` with default options.
+  """
+  @spec new(non_neg_integer()) :: table()
+  def new(max_table_size), do: new(max_table_size, [])
+
+  @doc """
   Create a new HPACK table that can be used as encoding or decoding context.
 
   See the "Encoding and decoding contexts" section in the module documentation.
 
   `max_table_size` is the maximum table size (in bytes) for the newly created table.
 
+  ## Options
+
+  This function accepts the following `options`:
+
+    * `:huffman_encoding` - (since 0.2.0) `:always` or `:never`. If `:always`,
+      then HPAX will always encode headers using Huffman encoding. If `:never`,
+      HPAX will not use any Huffman encoding. Defaults to `:never`.
+
   ## Examples
 
       encoding_context = HPAX.new(4096)
 
   """
-  @spec new(non_neg_integer()) :: Table.t()
-  def new(max_table_size) when is_integer(max_table_size) and max_table_size >= 0 do
-    Table.new(max_table_size)
+  @doc since: "0.2.0"
+  @spec new(non_neg_integer(), [keyword()]) :: table()
+  def new(max_table_size, options)
+      when is_integer(max_table_size) and max_table_size >= 0 and is_list(options) do
+    options = Keyword.put_new(options, :huffman_encoding, :never)
+
+    Enum.each(options, fn
+      {:huffman_encoding, _huffman_encoding} -> :ok
+      {key, _value} -> raise ArgumentError, "unknown option: #{inspect(key)}"
+    end)
+
+    Table.new(max_table_size, Keyword.fetch!(options, :huffman_encoding))
   end
 
   @doc """
@@ -57,7 +90,7 @@ defmodule HPAX do
       HPAX.resize(decoding_context, 8192)
 
   """
-  @spec resize(Table.t(), non_neg_integer()) :: Table.t()
+  @spec resize(table(), non_neg_integer()) :: table()
   defdelegate resize(table, new_size), to: Table
 
   @doc """
@@ -75,8 +108,8 @@ defmodule HPAX do
       #=> {:ok, [{":method", "GET"}], decoding_context}
 
   """
-  @spec decode(binary(), Table.t()) ::
-          {:ok, [{header_name(), header_value()}], Table.t()} | {:error, term()}
+  @spec decode(binary(), table()) ::
+          {:ok, [{header_name(), header_value()}], table()} | {:error, term()}
 
   # Dynamic resizes must occur only at the start of a block
   # https://datatracker.ietf.org/doc/html/rfc7541#section-4.2
@@ -112,11 +145,36 @@ defmodule HPAX do
       #=> {iodata, updated_encoding_context}
 
   """
-  @spec encode([header], Table.t()) :: {iodata(), Table.t()}
+  @spec encode([header], table()) :: {iodata(), table()}
         when header: {action, header_name(), header_value()},
              action: :store | :store_name | :no_store | :never_store
   def encode(headers, %Table{} = table) when is_list(headers) do
     encode_headers(headers, table, _acc = [])
+  end
+
+  @doc """
+  Encodes a list of headers through the given table, applying the same `action` to all of them.
+
+  This function is the similar to `encode/2`, but `headers` are `{name, value}` tuples instead,
+  and the same `action` is applied to all headers.
+
+    ## Examples
+
+      headers = [{":authority", "https://example.com"}]
+      encoding_context = HPAX.new(1000)
+      HPAX.encode(:store, headers, encoding_context)
+      #=> {iodata, updated_encoding_context}
+
+  """
+  @doc since: "0.2.0"
+  @spec encode(action, [header], table()) :: {iodata(), table()}
+        when action: :store | :store_name | :no_store | :never_store,
+             header: {header_name(), header_value()}
+  def encode(action, headers, %Table{} = table)
+      when is_list(headers) and action in [:store, :store_name, :no_store, :never_store] do
+    headers
+    |> Enum.map(fn {name, value} -> {action, name, value} end)
+    |> encode(table)
   end
 
   ## Helpers
@@ -226,28 +284,32 @@ defmodule HPAX do
 
   defp encode_headers([{action, name, value} | rest], table, acc)
        when action in @valid_header_actions and is_binary(name) and is_binary(value) do
+    huffman? = table.huffman_encoding == :always
+
     {encoded, table} =
       case Table.lookup_by_header(table, name, value) do
         {:full, index} ->
           {encode_indexed_header(index), table}
 
         {:name, index} when action == :store ->
-          {encode_literal_header_with_indexing(index, value), Table.add(table, name, value)}
+          {encode_literal_header_with_indexing(index, value, huffman?),
+           Table.add(table, name, value)}
 
         {:name, index} when action in [:store_name, :no_store] ->
-          {encode_literal_header_without_indexing(index, value), table}
+          {encode_literal_header_without_indexing(index, value, huffman?), table}
 
         {:name, index} when action == :never_store ->
-          {encode_literal_header_never_indexed(index, value), table}
+          {encode_literal_header_never_indexed(index, value, huffman?), table}
 
         :not_found when action in [:store, :store_name] ->
-          {encode_literal_header_with_indexing(name, value), Table.add(table, name, value)}
+          {encode_literal_header_with_indexing(name, value, huffman?),
+           Table.add(table, name, value)}
 
         :not_found when action == :no_store ->
-          {encode_literal_header_without_indexing(name, value), table}
+          {encode_literal_header_without_indexing(name, value, huffman?), table}
 
         :not_found when action == :never_store ->
-          {encode_literal_header_never_indexed(name, value), table}
+          {encode_literal_header_never_indexed(name, value, huffman?), table}
       end
 
     encode_headers(rest, table, [acc, encoded])
@@ -257,27 +319,27 @@ defmodule HPAX do
     <<1::1, Types.encode_integer(index, 7)::bitstring>>
   end
 
-  defp encode_literal_header_with_indexing(index, value) when is_integer(index) do
-    [<<1::2, Types.encode_integer(index, 6)::bitstring>>, Types.encode_binary(value, false)]
+  defp encode_literal_header_with_indexing(index, value, huffman?) when is_integer(index) do
+    [<<1::2, Types.encode_integer(index, 6)::bitstring>>, Types.encode_binary(value, huffman?)]
   end
 
-  defp encode_literal_header_with_indexing(name, value) when is_binary(name) do
-    [<<1::2, 0::6>>, Types.encode_binary(name, false), Types.encode_binary(value, false)]
+  defp encode_literal_header_with_indexing(name, value, huffman?) when is_binary(name) do
+    [<<1::2, 0::6>>, Types.encode_binary(name, huffman?), Types.encode_binary(value, huffman?)]
   end
 
-  defp encode_literal_header_without_indexing(index, value) when is_integer(index) do
-    [<<0::4, Types.encode_integer(index, 4)::bitstring>>, Types.encode_binary(value, false)]
+  defp encode_literal_header_without_indexing(index, value, huffman?) when is_integer(index) do
+    [<<0::4, Types.encode_integer(index, 4)::bitstring>>, Types.encode_binary(value, huffman?)]
   end
 
-  defp encode_literal_header_without_indexing(name, value) when is_binary(name) do
-    [<<0::4, 0::4>>, Types.encode_binary(name, false), Types.encode_binary(value, false)]
+  defp encode_literal_header_without_indexing(name, value, huffman?) when is_binary(name) do
+    [<<0::4, 0::4>>, Types.encode_binary(name, huffman?), Types.encode_binary(value, huffman?)]
   end
 
-  defp encode_literal_header_never_indexed(index, value) when is_integer(index) do
-    [<<1::4, Types.encode_integer(index, 4)::bitstring>>, Types.encode_binary(value, false)]
+  defp encode_literal_header_never_indexed(index, value, huffman?) when is_integer(index) do
+    [<<1::4, Types.encode_integer(index, 4)::bitstring>>, Types.encode_binary(value, huffman?)]
   end
 
-  defp encode_literal_header_never_indexed(name, value) when is_binary(name) do
-    [<<1::4, 0::4>>, Types.encode_binary(name, false), Types.encode_binary(value, false)]
+  defp encode_literal_header_never_indexed(name, value, huffman?) when is_binary(name) do
+    [<<1::4, 0::4>>, Types.encode_binary(name, huffman?), Types.encode_binary(value, huffman?)]
   end
 end

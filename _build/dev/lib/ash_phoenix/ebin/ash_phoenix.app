@@ -1,5 +1,7 @@
 {application,ash_phoenix,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332001},
+              {compile_env,[{ash,['include_embedded_source_by_default?'],
+                                 error}]},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir,logger,ash,phoenix,
                              phoenix_html,phoenix_live_view]},
@@ -24,6 +26,7 @@
                         'Elixir.AshPhoenix.FormData.Error.Ash.Error.Changes.Required',
                         'Elixir.AshPhoenix.FormData.Error.Ash.Error.Invalid.NoSuchInput',
                         'Elixir.AshPhoenix.FormData.Error.Ash.Error.Query.InvalidArgument',
+                        'Elixir.AshPhoenix.FormData.Error.Ash.Error.Query.InvalidCalculationArgument',
                         'Elixir.AshPhoenix.FormData.Error.Ash.Error.Query.InvalidQuery',
                         'Elixir.AshPhoenix.FormData.Error.Ash.Error.Query.NotFound',
                         'Elixir.AshPhoenix.FormData.Error.Ash.Error.Query.Required',
@@ -51,8 +54,9 @@
                         'Elixir.Plug.Exception.Ash.Error.Invalid',
                         'Elixir.Plug.Exception.Ash.Error.Invalid.InvalidPrimaryKey',
                         'Elixir.Plug.Exception.Ash.Error.Query.InvalidArgument',
+                        'Elixir.Plug.Exception.Ash.Error.Query.InvalidCalculationArgument',
                         'Elixir.Plug.Exception.Ash.Error.Query.InvalidFilterValue',
                         'Elixir.Plug.Exception.Ash.Error.Query.NotFound',
                         'Elixir.Plug.Exception.Ash.Error.Unknown']},
               {registered,[]},
-              {vsn,"2.0.2"}]}.
+              {vsn,"2.1.6"}]}.

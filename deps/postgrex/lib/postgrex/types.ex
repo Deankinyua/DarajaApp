@@ -254,7 +254,7 @@ defmodule Postgrex.Types do
 
   Type modules are given to Postgrex on `start_link` via the `:types`
   option and are used to control how Postgrex encodes and decodes data
-  coming from Postgrex.
+  coming from PostgreSQL.
 
   For example, to define a new type module with a custom extension
   called `MyExtension` while also changing `Postgrex`'s default
@@ -313,6 +313,14 @@ defmodule Postgrex.Types do
       will increase the time to compile the type module (default: `false`);
 
     * `:moduledoc` - The moduledoc to be used for the generated module.
+
+    * `:allow_infinite_timestamps` - A boolean controlling whether or not
+      the built-in extensions `timestamp` and `timestamptz` will allow
+      a value of infinity to be decoded. Defaults to `false`.
+
+    * `:interval_decode_type` - The struct that intervals will be decoded
+      into. Either `Postgrex.Interval` or `Duration` (Elixir 1.17.0+ only).
+      Defaults to `Postgrex.Interval`.
 
   """
   def define(module, extensions, opts \\ []) do

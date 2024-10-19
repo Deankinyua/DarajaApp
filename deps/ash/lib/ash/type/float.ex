@@ -50,6 +50,11 @@ defmodule Ash.Type.Float do
   end
 
   @impl true
+  def matches_type?(v, _) do
+    is_float(v)
+  end
+
+  @impl true
   def generator(constraints) do
     constraints
     |> Keyword.take([:min, :max])
@@ -113,7 +118,11 @@ defmodule Ash.Type.Float do
     Ecto.Type.load(:float, value)
   end
 
-  def cast_atomic(expr, constraints) do
+  def cast_atomic(expr, _constraints) do
+    {:atomic, expr}
+  end
+
+  def apply_atomic_constraints(expr, constraints) do
     expr =
       Enum.reduce(constraints, expr, fn
         {:max, max}, expr ->
@@ -122,7 +131,7 @@ defmodule Ash.Type.Float do
               error(
                 Ash.Error.Changes.InvalidChanges,
                 message: "must be less than or equal to %{max}",
-                vars: %{max: max}
+                vars: %{max: ^max}
               )
             else
               ^expr
@@ -135,7 +144,7 @@ defmodule Ash.Type.Float do
               error(
                 Ash.Error.Changes.InvalidChanges,
                 message: "must be greater than or equal to %{min}",
-                vars: %{min: min}
+                vars: %{min: ^min}
               )
             else
               ^expr
@@ -149,8 +158,8 @@ defmodule Ash.Type.Float do
             else
               error(
                 Ash.Error.Changes.InvalidChanges,
-                message: "must be greater than %{min}",
-                vars: %{min: min}
+                message: "must be greater than %{less_than}",
+                vars: %{less_than: ^less_than}
               )
             end
           )
@@ -162,14 +171,14 @@ defmodule Ash.Type.Float do
             else
               error(
                 Ash.Error.Changes.InvalidChanges,
-                message: "must be greater than %{min}",
-                vars: %{min: min}
+                message: "must be greater than %{greater_than}",
+                vars: %{greater_than: ^greater_than}
               )
             end
           )
       end)
 
-    {:atomic, expr}
+    {:ok, expr}
   end
 
   @impl true

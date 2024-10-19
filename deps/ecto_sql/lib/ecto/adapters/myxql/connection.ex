@@ -16,23 +16,28 @@ if Code.ensure_loaded?(MyXQL) do
 
     @impl true
     def prepare_execute(conn, name, sql, params, opts) do
+      ensure_list_params!(params)
       MyXQL.prepare_execute(conn, name, sql, params, opts)
     end
 
     @impl true
     def query(conn, sql, params, opts) do
+      ensure_list_params!(params)
       opts = Keyword.put_new(opts, :query_type, :binary_then_text)
       MyXQL.query(conn, sql, params, opts)
     end
 
     @impl true
     def query_many(conn, sql, params, opts) do
+      ensure_list_params!(params)
       opts = Keyword.put_new(opts, :query_type, :text)
       MyXQL.query_many(conn, sql, params, opts)
     end
 
     @impl true
     def execute(conn, query, params, opts) do
+      ensure_list_params!(params)
+
       case MyXQL.execute(conn, query, params, opts) do
         {:ok, _, result} -> {:ok, result}
         {:error, _} = error -> error
@@ -41,7 +46,14 @@ if Code.ensure_loaded?(MyXQL) do
 
     @impl true
     def stream(conn, sql, params, opts) do
+      ensure_list_params!(params)
       MyXQL.stream(conn, sql, params, opts)
+    end
+
+    defp ensure_list_params!(params) do
+      unless is_list(params) do
+        raise ArgumentError, "expected params to be a list, got: #{inspect(params)}"
+      end
     end
 
     @quotes ~w(" ' `)
@@ -66,6 +78,18 @@ if Code.ensure_loaded?(MyXQL) do
       end
     end
 
+    def to_constraints(
+          %MyXQL.Error{mysql: %{name: :ER_CHECK_CONSTRAINT_VIOLATED}, message: message},
+          _opts
+        ) do
+      with [_, quoted] <- :binary.split(message, ["Check constraint "]),
+           [_, constraint | _] <- :binary.split(quoted, @quotes, [:global]) do
+        [check: constraint]
+      else
+        _ -> []
+      end
+    end
+
     def to_constraints(_, _),
       do: []
 
@@ -75,7 +99,7 @@ if Code.ensure_loaded?(MyXQL) do
     ## Query
 
     @parent_as __MODULE__
-    alias Ecto.Query.{BooleanExpr, JoinExpr, QueryExpr, WithExpr}
+    alias Ecto.Query.{BooleanExpr, ByExpr, JoinExpr, QueryExpr, WithExpr}
 
     @impl true
     def all(query, as_prefix \\ []) do
@@ -319,10 +343,10 @@ if Code.ensure_loaded?(MyXQL) do
     end
 
     defp distinct(nil, _sources, _query), do: []
-    defp distinct(%QueryExpr{expr: true}, _sources, _query), do: "DISTINCT "
-    defp distinct(%QueryExpr{expr: false}, _sources, _query), do: []
+    defp distinct(%ByExpr{expr: true}, _sources, _query), do: "DISTINCT "
+    defp distinct(%ByExpr{expr: false}, _sources, _query), do: []
 
-    defp distinct(%QueryExpr{expr: exprs}, _sources, query) when is_list(exprs) do
+    defp distinct(%ByExpr{expr: exprs}, _sources, query) when is_list(exprs) do
       error!(query, "DISTINCT with multiple columns is not supported by MySQL")
     end
 
@@ -511,8 +535,8 @@ if Code.ensure_loaded?(MyXQL) do
     defp group_by(%{group_bys: group_bys} = query, sources) do
       [
         " GROUP BY "
-        | Enum.map_intersperse(group_bys, ", ", fn %QueryExpr{expr: expr} ->
-            Enum.map_intersperse(expr, ", ", &expr(&1, sources, query))
+        | Enum.map_intersperse(group_bys, ", ", fn %ByExpr{expr: expr} ->
+            Enum.map_intersperse(expr, ", ", &top_level_expr(&1, sources, query))
           end)
       ]
     end
@@ -549,14 +573,14 @@ if Code.ensure_loaded?(MyXQL) do
     defp order_by(%{order_bys: order_bys} = query, sources) do
       [
         " ORDER BY "
-        | Enum.map_intersperse(order_bys, ", ", fn %QueryExpr{expr: expr} ->
+        | Enum.map_intersperse(order_bys, ", ", fn %ByExpr{expr: expr} ->
             Enum.map_intersperse(expr, ", ", &order_by_expr(&1, sources, query))
           end)
       ]
     end
 
     defp order_by_expr({dir, expr}, sources, query) do
-      str = expr(expr, sources, query)
+      str = top_level_expr(expr, sources, query)
 
       case dir do
         :asc -> str
@@ -627,6 +651,21 @@ if Code.ensure_loaded?(MyXQL) do
       [?(, expr(expr, sources, query), ?)]
     end
 
+    defp top_level_expr(%Ecto.SubQuery{query: query}, sources, parent_query) do
+      combinations =
+        Enum.map(query.combinations, fn {type, combination_query} ->
+          {type, put_in(combination_query.aliases[@parent_as], {parent_query, sources})}
+        end)
+
+      query = put_in(query.combinations, combinations)
+      query = put_in(query.aliases[@parent_as], {parent_query, sources})
+      [all(query, subquery_as_prefix(sources))]
+    end
+
+    defp top_level_expr(other, sources, parent_query) do
+      expr(other, sources, parent_query)
+    end
+
     defp expr({:^, [], [_ix]}, _sources, _query) do
       ~c"?"
     end
@@ -687,15 +726,8 @@ if Code.ensure_loaded?(MyXQL) do
       error!(query, "MySQL adapter does not support aggregate filters")
     end
 
-    defp expr(%Ecto.SubQuery{query: query}, sources, parent_query) do
-      combinations =
-        Enum.map(query.combinations, fn {type, combination_query} ->
-          {type, put_in(combination_query.aliases[@parent_as], {parent_query, sources})}
-        end)
-
-      query = put_in(query.combinations, combinations)
-      query = put_in(query.aliases[@parent_as], {parent_query, sources})
-      [?(, all(query, subquery_as_prefix(sources)), ?)]
+    defp expr(%Ecto.SubQuery{} = subquery, sources, parent_query) do
+      [?(, top_level_expr(subquery, sources, parent_query), ?)]
     end
 
     defp expr({:fragment, _, [kw]}, _sources, query) when is_list(kw) or tuple_size(kw) == 3 do
@@ -790,7 +822,13 @@ if Code.ensure_loaded?(MyXQL) do
           [op_to_binary(left, sources, query), op | op_to_binary(right, sources, query)]
 
         {:fun, fun} ->
-          [fun, ?(, modifier, Enum.map_intersperse(args, ", ", &expr(&1, sources, query)), ?)]
+          [
+            fun,
+            ?(,
+            modifier,
+            Enum.map_intersperse(args, ", ", &top_level_expr(&1, sources, query)),
+            ?)
+          ]
       end
     end
 
@@ -1000,11 +1038,30 @@ if Code.ensure_loaded?(MyXQL) do
     def execute_ddl({:create_if_not_exists, %Index{}}),
       do: error!(nil, "MySQL adapter does not support create if not exists for index")
 
-    def execute_ddl({:create, %Constraint{check: check}}) when is_binary(check),
-      do: error!(nil, "MySQL adapter does not support check constraints")
+    def execute_ddl({:create, %Constraint{check: check} = constraint}) when is_binary(check) do
+      table_name = quote_name(constraint.prefix, constraint.table)
+      [["ALTER TABLE ", table_name, " ADD ", new_constraint_expr(constraint)]]
+    end
 
     def execute_ddl({:create, %Constraint{exclude: exclude}}) when is_binary(exclude),
       do: error!(nil, "MySQL adapter does not support exclusion constraints")
+
+    def execute_ddl({:drop, %Constraint{}, :cascade}),
+      do: error!(nil, "MySQL does not support `CASCADE` in `DROP CONSTRAINT` commands")
+
+    def execute_ddl({:drop, %Constraint{} = constraint, _}) do
+      [
+        [
+          "ALTER TABLE ",
+          quote_name(constraint.prefix, constraint.table),
+          " DROP CONSTRAINT ",
+          quote_name(constraint.name)
+        ]
+      ]
+    end
+
+    def execute_ddl({:drop_if_exists, %Constraint{}, _}),
+      do: error!(nil, "MySQL adapter does not support `drop_if_exists` for constraints")
 
     def execute_ddl({:drop, %Index{}, :cascade}),
       do: error!(nil, "MySQL adapter does not support cascade in drop index")
@@ -1020,12 +1077,6 @@ if Code.ensure_loaded?(MyXQL) do
         ]
       ]
     end
-
-    def execute_ddl({:drop, %Constraint{}, _}),
-      do: error!(nil, "MySQL adapter does not support constraints")
-
-    def execute_ddl({:drop_if_exists, %Constraint{}, _}),
-      do: error!(nil, "MySQL adapter does not support constraints")
 
     def execute_ddl({:drop_if_exists, %Index{}, _}),
       do: error!(nil, "MySQL adapter does not support drop if exists for index")
@@ -1188,7 +1239,10 @@ if Code.ensure_loaded?(MyXQL) do
       [drop_constraint_if_exists_expr(ref, table, name), "DROP IF EXISTS ", quote_name(name)]
     end
 
-    defp column_change(_table, {:remove_if_exists, name, _type}),
+    defp column_change(table, {:remove_if_exists, name, _type}),
+      do: column_change(table, {:remove_if_exists, name})
+
+    defp column_change(_table, {:remove_if_exists, name}),
       do: ["DROP IF EXISTS ", quote_name(name)]
 
     defp column_options(opts) do
@@ -1217,6 +1271,17 @@ if Code.ensure_loaded?(MyXQL) do
     defp null_expr(false), do: " NOT NULL"
     defp null_expr(true), do: " NULL"
     defp null_expr(_), do: []
+
+    defp new_constraint_expr(%Constraint{check: check} = constraint) when is_binary(check) do
+      [
+        "CONSTRAINT ",
+        quote_name(constraint.name),
+        " CHECK (",
+        check,
+        ")",
+        validate(constraint.validate)
+      ]
+    end
 
     defp default_expr({:ok, nil}),
       do: " DEFAULT NULL"
@@ -1314,7 +1379,7 @@ if Code.ensure_loaded?(MyXQL) do
         quote_names(current_columns),
         ?),
         " REFERENCES ",
-        quote_table(ref.prefix || table.prefix, ref.table),
+        quote_table(Keyword.get(ref.options, :prefix, table.prefix), ref.table),
         ?(,
         quote_names(reference_columns),
         ?),
@@ -1375,6 +1440,9 @@ if Code.ensure_loaded?(MyXQL) do
     defp reference_on_update(:restrict), do: " ON UPDATE RESTRICT"
     defp reference_on_update(_), do: []
 
+    defp validate(false), do: " NOT ENFORCED"
+    defp validate(_), do: []
+
     ## Helpers
 
     defp get_source(query, sources, ix, source) do
@@ -1396,6 +1464,10 @@ if Code.ensure_loaded?(MyXQL) do
     end
 
     defp maybe_add_column_names(_, name), do: name
+
+    defp quote_name(nil, name), do: quote_name(name)
+
+    defp quote_name(prefix, name), do: [quote_name(prefix), ?., quote_name(name)]
 
     defp quote_name(name) when is_atom(name) do
       quote_name(Atom.to_string(name))
@@ -1445,7 +1517,7 @@ if Code.ensure_loaded?(MyXQL) do
     end
 
     defp ecto_cast_to_db(:id, _query), do: "unsigned"
-    defp ecto_cast_to_db(:integer, _query), do: "unsigned"
+    defp ecto_cast_to_db(:integer, _query), do: "signed"
     defp ecto_cast_to_db(:string, _query), do: "char"
     defp ecto_cast_to_db(:utc_datetime_usec, _query), do: "datetime(6)"
     defp ecto_cast_to_db(:naive_datetime_usec, _query), do: "datetime(6)"

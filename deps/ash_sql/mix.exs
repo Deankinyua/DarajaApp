@@ -6,7 +6,7 @@ defmodule AshSql.MixProject do
   Shared utilities for ecto-based sql data layers.
   """
 
-  @version "0.2.1"
+  @version "0.2.36"
 
   def project do
     [
@@ -15,6 +15,7 @@ defmodule AshSql.MixProject do
       description: @description,
       elixir: "~> 1.13",
       start_permanent: Mix.env() == :prod,
+      aliases: aliases(),
       deps: deps(),
       docs: docs(),
       package: package()
@@ -68,7 +69,7 @@ defmodule AshSql.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:ash, "~> 3.0"},
+      {:ash, "~> 3.0 and >= 3.1.7"},
       {:ecto_sql, "~> 3.9"},
       {:ecto, "~> 3.9"},
       # dev/test dependencies
@@ -81,6 +82,12 @@ defmodule AshSql.MixProject do
       {:dialyxir, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:sobelow, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:mix_audit, ">= 0.0.0", only: [:dev, :test], runtime: false}
+    ]
+  end
+
+  defp aliases do
+    [
+      sobelow: ["sobelow --skip"]
     ]
   end
 end

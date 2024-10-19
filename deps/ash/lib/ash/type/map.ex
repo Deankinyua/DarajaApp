@@ -71,6 +71,11 @@ defmodule Ash.Type.Map do
   def storage_type(_), do: :map
 
   @impl true
+  def matches_type?(v, _constraints) do
+    is_map(v)
+  end
+
+  @impl true
   def cast_input("", _), do: {:ok, nil}
 
   def cast_input(nil, _), do: {:ok, nil}
@@ -102,8 +107,8 @@ defmodule Ash.Type.Map do
 
   @impl true
   def cast_atomic(new_value, constraints) do
-    if constraints[:keys] do
-      {:not_atomic, "Keywords do not support atomic updates when using the `keys` constraint"}
+    if constraints[:fields] do
+      {:not_atomic, "Maps do not support atomic updates when using the `fields` constraint"}
     else
       {:atomic, new_value}
     end

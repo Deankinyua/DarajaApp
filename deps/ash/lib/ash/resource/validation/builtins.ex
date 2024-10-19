@@ -177,13 +177,26 @@ defmodule Ash.Resource.Validation.Builtins do
   end
 
   @doc """
-  Validates the presence of a list of attributes or arguments.
+  Validates that the given attribute or argument or list of attributes or arguments are not `nil`.
 
-  If no options are provided, validates that they are all present.
+  Use options to specify how many must not be `nil`. If no options are provided, validates that they are all present.
+
+  Keep in mind that some types cast certain values to `nil`, and validations are
+  applied after all inputs have been cast. For example, a `:string` type attribute
+  with the default constraints will cast `""` as `nil`, meaning an input of
+  `""` would fail the `present` validation.
 
   ## Options
 
   #{Spark.Options.docs(Ash.Resource.Validation.Present.opt_schema())}
+
+  ## Examples
+
+      validate present(:name)
+
+      validate present([:first_name, :last_name]), where: [absent(:full_name)]
+
+      validate present([:is_admin, :is_normal_user], at_most: 1)
   """
   @spec present(attributes_or_arguments :: atom | list(atom), opts :: Keyword.t()) ::
           Validation.ref()
@@ -198,9 +211,7 @@ defmodule Ash.Resource.Validation.Builtins do
   end
 
   @doc """
-  Validates the presence of a list of attributes.
-
-  If no options are provided, validates that they are all present.
+  Validates that the attribute or list of attributes are not `nil`. See `present/2` for more information.
 
   ## Options
 
@@ -219,15 +230,28 @@ defmodule Ash.Resource.Validation.Builtins do
   end
 
   @doc """
-  Validates the absence of a list of attributes or arguments.
+  Validates that the given attribute or argument or list of attributes or arguments are `nil`.
 
-  If no options are provided, validates that they are all absent.
+  This is the inverse of `present/2`.
 
-  This works by changing your options and providing them to the `present` validation.
+  Use options to specify how many must be `nil`. If no options are provided, validates that they are all absent.
+
+  Keep in mind that some types cast certain values to `nil`, and validations are
+  applied after all inputs have been cast. For example, a `:string` type attribute
+  with the default constraints will cast `""` as `nil`, meaning an input of
+  `""` would pass the `absent` validation.
 
   ## Options
 
   #{String.replace(Spark.Options.docs(Ash.Resource.Validation.Present.opt_schema()), "present", "absent")}
+
+  ## Examples
+
+      validate absent(:unsettable_option)
+
+      validate absent([:first_name, :last_name]), where: [present(:full_name)]
+
+      validate absent([:is_admin, :is_normal_user], at_least: 1)
   """
   @spec absent(attributes_or_arguments :: atom | list(atom), opts :: Keyword.t()) ::
           Validation.ref()
@@ -261,11 +285,7 @@ defmodule Ash.Resource.Validation.Builtins do
   end
 
   @doc """
-  Validates the absence of a list of attributes.
-
-  If no options are provided, validates that they are all absent.
-
-  This works by changing your options and providing them to the `present` validation.
+  Validates that the attribute or list of attributes are `nil`. See `absent/2` for more information.
 
   ## Options
 

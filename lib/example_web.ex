@@ -81,6 +81,7 @@ defmodule ExampleWeb do
 
   defp html_helpers do
     quote do
+      use Tremorx
       # HTML escaping functionality
       import Phoenix.HTML
       # Core UI components and translation

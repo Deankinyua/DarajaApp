@@ -10,6 +10,89 @@ defmodule AshSql.Sort do
         binding \\ 0,
         type \\ :window
       ) do
+    sort =
+      Enum.map(sort, fn
+        {key, val} when is_atom(key) ->
+          case Ash.Resource.Info.field(resource, key) do
+            %Ash.Resource.Calculation{calculation: {module, opts}} = calculation ->
+              {:ok, calculation} =
+                Ash.Query.Calculation.new(
+                  calculation.name,
+                  module,
+                  opts,
+                  calculation.type,
+                  calculation.constraints
+                )
+
+              calculation =
+                Ash.Actions.Read.add_calc_context(
+                  calculation,
+                  query.__ash_bindings__.context[:private][:actor],
+                  query.__ash_bindings__.context[:private][:authorize?],
+                  query.__ash_bindings__.context[:private][:tenant],
+                  query.__ash_bindings__.context[:private][:tracer],
+                  nil
+                )
+
+              {calculation, val}
+
+            %Ash.Resource.Aggregate{} = aggregate ->
+              related = Ash.Resource.Info.related(resource, aggregate.relationship_path)
+
+              read_action =
+                aggregate.read_action ||
+                  Ash.Resource.Info.primary_action!(
+                    related,
+                    :read
+                  ).name
+
+              with %{valid?: true} = aggregate_query <- Ash.Query.for_read(related, read_action),
+                   %{valid?: true} = aggregate_query <-
+                     Ash.Query.build(aggregate_query,
+                       filter: aggregate.filter,
+                       sort: aggregate.sort
+                     ) do
+                case Ash.Query.Aggregate.new(
+                       resource,
+                       aggregate.name,
+                       aggregate.kind,
+                       path: aggregate.relationship_path,
+                       query: aggregate_query,
+                       field: aggregate.field,
+                       default: aggregate.default,
+                       filterable?: aggregate.filterable?,
+                       type: aggregate.type,
+                       sortable?: aggregate.filterable?,
+                       include_nil?: aggregate.include_nil?,
+                       constraints: aggregate.constraints,
+                       implementation: aggregate.implementation,
+                       uniq?: aggregate.uniq?,
+                       read_action:
+                         aggregate.read_action ||
+                           Ash.Resource.Info.primary_action!(
+                             Ash.Resource.Info.related(resource, aggregate.relationship_path),
+                             :read
+                           ).name,
+                       authorize?: aggregate.authorize?
+                     ) do
+                  {:ok, agg} ->
+                    {agg, val}
+
+                  {:error, error} ->
+                    raise Ash.Error.to_ash_error(error)
+                end
+              else
+                %{errors: errors} -> raise Ash.Error.to_ash_error(errors)
+              end
+
+            _ ->
+              {key, val}
+          end
+
+        {key, val} ->
+          {key, val}
+      end)
+
     used_aggregates =
       Enum.flat_map(sort, fn
         {%Ash.Query.Calculation{} = calculation, _} ->
@@ -100,14 +183,7 @@ defmodule AshSql.Sort do
                 relationship_path: relationship_path
               }
 
-            bindings =
-              if query.__ash_bindings__[:parent_bindings] do
-                Map.update!(query.__ash_bindings__, :parent_bindings, fn parent ->
-                  Map.put(parent, :parent_is_parent_as?, false)
-                end)
-              else
-                query.__ash_bindings__
-              end
+            bindings = query.__ash_bindings__
 
             {expr, acc} =
               AshSql.Expr.dynamic_expr(
@@ -143,14 +219,7 @@ defmodule AshSql.Sort do
             |> Ash.Filter.move_to_relationship_path(relationship_path)
             |> case do
               {:ok, expr} ->
-                bindings =
-                  if query.__ash_bindings__[:parent_bindings] do
-                    Map.update!(query.__ash_bindings__, :parent_bindings, fn parent ->
-                      Map.put(parent, :parent_is_parent_as?, false)
-                    end)
-                  else
-                    query.__ash_bindings__
-                  end
+                bindings = query.__ash_bindings__
 
                 {expr, acc} =
                   AshSql.Expr.dynamic_expr(
@@ -372,7 +441,7 @@ defmodule AshSql.Sort do
   end
 
   def apply_sort(query, sort, resource, type) do
-    AshSql.Sort.sort(query, sort, resource, [], 0, type)
+    AshSql.Sort.sort(query, sort, resource, [], query.__ash_bindings__.root_binding, type)
   end
 
   defp set_sort_applied(query) do

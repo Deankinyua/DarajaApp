@@ -4,6 +4,7 @@ if Code.ensure_loaded?(Postgrex) do
 
     @default_port 5432
     @behaviour Ecto.Adapters.SQL.Connection
+    @explain_prepared_statement_name "ecto_explain_statement"
 
     ## Module and Options
 
@@ -98,6 +99,8 @@ if Code.ensure_loaded?(Postgrex) do
 
     @impl true
     def prepare_execute(conn, name, sql, params, opts) do
+      ensure_list_params!(params)
+
       case Postgrex.prepare_execute(conn, name, sql, params, opts) do
         {:error, %Postgrex.Error{postgres: %{pg_code: "22P02", message: message}} = error} ->
           context = """
@@ -120,6 +123,7 @@ if Code.ensure_loaded?(Postgrex) do
 
     @impl true
     def query(conn, sql, params, opts) do
+      ensure_list_params!(params)
       Postgrex.query(conn, sql, params, opts)
     end
 
@@ -130,6 +134,8 @@ if Code.ensure_loaded?(Postgrex) do
 
     @impl true
     def execute(conn, %{ref: ref} = query, params, opts) do
+      ensure_list_params!(params)
+
       case Postgrex.execute(conn, query, params, opts) do
         {:ok, %{ref: ^ref}, result} ->
           {:ok, result}
@@ -150,11 +156,18 @@ if Code.ensure_loaded?(Postgrex) do
 
     @impl true
     def stream(conn, sql, params, opts) do
+      ensure_list_params!(params)
       Postgrex.stream(conn, sql, params, opts)
     end
 
+    defp ensure_list_params!(params) do
+      unless is_list(params) do
+        raise ArgumentError, "expected params to be a list, got: #{inspect(params)}"
+      end
+    end
+
     @parent_as __MODULE__
-    alias Ecto.Query.{BooleanExpr, JoinExpr, QueryExpr, WithExpr}
+    alias Ecto.Query.{BooleanExpr, ByExpr, JoinExpr, QueryExpr, WithExpr}
 
     @impl true
     def all(query, as_prefix \\ []) do
@@ -357,11 +370,33 @@ if Code.ensure_loaded?(Postgrex) do
     @impl true
     def explain_query(conn, query, params, opts) do
       {explain_opts, opts} =
-        Keyword.split(opts, ~w[analyze verbose costs settings buffers timing summary format]a)
+        Keyword.split(
+          opts,
+          ~w[analyze verbose costs settings buffers timing summary format plan]a
+        )
 
-      map_format? = {:format, :map} in explain_opts
+      {plan_type, explain_opts} = Keyword.pop(explain_opts, :plan)
+      fallback_generic? = plan_type == :fallback_generic
 
-      case query(conn, build_explain_query(query, explain_opts), params, opts) do
+      result =
+        cond do
+          fallback_generic? and explain_opts[:analyze] ->
+            raise ArgumentError,
+                  "analyze cannot be used with a `:fallback_generic` explain plan " <>
+                    "as the actual parameter values are ignored under this plan type." <>
+                    "You may either change the plan type to `:custom` or remove the `:analyze` option."
+
+          fallback_generic? ->
+            explain_queries = build_fallback_generic_queries(query, length(params), explain_opts)
+            fallback_generic_query(conn, explain_queries, opts)
+
+          true ->
+            query(conn, build_explain_query(query, explain_opts), params, opts)
+        end
+
+      map_format? = explain_opts[:format] == :map
+
+      case result do
         {:ok, %Postgrex.Result{rows: rows}} when map_format? ->
           {:ok, List.flatten(rows)}
 
@@ -373,12 +408,52 @@ if Code.ensure_loaded?(Postgrex) do
       end
     end
 
-    def build_explain_query(query, []) do
-      ["EXPLAIN ", query]
-      |> IO.iodata_to_binary()
+    def build_fallback_generic_queries(query, num_params, opts) do
+      prepare_args =
+        if num_params > 0,
+          do: ["( ", Enum.map_intersperse(1..num_params, ", ", fn _ -> "unknown" end), " )"],
+          else: []
+
+      prepare =
+        [
+          "PREPARE ",
+          @explain_prepared_statement_name,
+          prepare_args,
+          " AS ",
+          query
+        ]
+        |> IO.iodata_to_binary()
+
+      set = "SET LOCAL plan_cache_mode = force_generic_plan"
+
+      execute_args =
+        if num_params > 0,
+          do: ["( ", Enum.map_intersperse(1..num_params, ", ", fn _ -> "NULL" end), " )"],
+          else: []
+
+      execute =
+        [
+          "EXPLAIN ",
+          build_explain_opts(opts),
+          "EXECUTE ",
+          @explain_prepared_statement_name,
+          execute_args
+        ]
+        |> IO.iodata_to_binary()
+
+      deallocate = "DEALLOCATE #{@explain_prepared_statement_name}"
+
+      {prepare, set, execute, deallocate}
     end
 
     def build_explain_query(query, opts) do
+      ["EXPLAIN ", build_explain_opts(opts), query]
+      |> IO.iodata_to_binary()
+    end
+
+    defp build_explain_opts([]), do: []
+
+    defp build_explain_opts(opts) do
       {analyze, opts} = Keyword.pop(opts, :analyze)
       {verbose, opts} = Keyword.pop(opts, :verbose)
 
@@ -388,10 +463,8 @@ if Code.ensure_loaded?(Postgrex) do
       case opts do
         [] ->
           [
-            "EXPLAIN ",
             if_do(quote_boolean(analyze) == "TRUE", "ANALYZE "),
-            if_do(quote_boolean(verbose) == "TRUE", "VERBOSE "),
-            query
+            if_do(quote_boolean(verbose) == "TRUE", "VERBOSE ")
           ]
 
         opts ->
@@ -410,9 +483,19 @@ if Code.ensure_loaded?(Postgrex) do
             |> Enum.reverse()
             |> Enum.join(", ")
 
-          ["EXPLAIN ( ", opts, " ) ", query]
+          ["( ", opts, " ) "]
       end
-      |> IO.iodata_to_binary()
+    end
+
+    defp fallback_generic_query(conn, queries, opts) do
+      {prepare, set, execute, deallocate} = queries
+
+      with {:ok, _} <- query(conn, prepare, [], opts),
+           {:ok, _} <- query(conn, set, [], opts),
+           {:ok, result} <- query(conn, execute, [], opts),
+           {:ok, _} <- query(conn, deallocate, [], opts) do
+        {:ok, result}
+      end
     end
 
     ## Query generation
@@ -480,11 +563,11 @@ if Code.ensure_loaded?(Postgrex) do
     end
 
     defp distinct(nil, _, _), do: {[], []}
-    defp distinct(%QueryExpr{expr: []}, _, _), do: {[], []}
-    defp distinct(%QueryExpr{expr: true}, _, _), do: {" DISTINCT", []}
-    defp distinct(%QueryExpr{expr: false}, _, _), do: {[], []}
+    defp distinct(%ByExpr{expr: []}, _, _), do: {[], []}
+    defp distinct(%ByExpr{expr: true}, _, _), do: {" DISTINCT", []}
+    defp distinct(%ByExpr{expr: false}, _, _), do: {[], []}
 
-    defp distinct(%QueryExpr{expr: exprs}, sources, query) do
+    defp distinct(%ByExpr{expr: exprs}, sources, query) do
       {[
          " DISTINCT ON (",
          Enum.map_intersperse(exprs, ", ", fn {_, expr} -> expr(expr, sources, query) end),
@@ -701,7 +784,7 @@ if Code.ensure_loaded?(Postgrex) do
       [
         " GROUP BY "
         | Enum.map_intersperse(group_bys, ", ", fn
-            %QueryExpr{expr: expr} ->
+            %ByExpr{expr: expr} ->
               Enum.map_intersperse(expr, ", ", &expr(&1, sources, query))
           end)
       ]
@@ -1013,6 +1096,11 @@ if Code.ensure_loaded?(Postgrex) do
     defp expr(%Ecto.Query.Tagged{value: binary, type: :binary}, _sources, _query)
          when is_binary(binary) do
       ["'\\x", Base.encode16(binary, case: :lower) | "'::bytea"]
+    end
+
+    defp expr(%Ecto.Query.Tagged{value: bitstring, type: :bitstring}, _sources, _query)
+         when is_bitstring(bitstring) do
+      bitstring_literal(bitstring)
     end
 
     defp expr(%Ecto.Query.Tagged{value: other, type: type}, sources, query) do
@@ -1500,7 +1588,10 @@ if Code.ensure_loaded?(Postgrex) do
       ]
     end
 
-    defp column_change(_table, {:remove_if_exists, name, _type}),
+    defp column_change(table, {:remove_if_exists, name, _type}),
+      do: column_change(table, {:remove_if_exists, name})
+
+    defp column_change(_table, {:remove_if_exists, name}),
       do: ["DROP COLUMN IF EXISTS ", quote_name(name)]
 
     defp modify_null(name, opts) do
@@ -1561,7 +1652,7 @@ if Code.ensure_loaded?(Postgrex) do
     defp default_type(list, {:array, inner} = type) when is_list(list) do
       [
         "ARRAY[",
-        Enum.map(list, &default_type(&1, inner)) |> Enum.intersperse(?,),
+        Enum.map_intersperse(list, ?,, &default_type(&1, inner)),
         "]::",
         ecto_to_db(type)
       ]
@@ -1578,6 +1669,10 @@ if Code.ensure_loaded?(Postgrex) do
                 "`#{inspect(literal)}` is invalid. If you want to write it as a binary, use \"#{encoded}\", " <>
                 "otherwise refer to PostgreSQL documentation for instructions on how to escape this SQL type"
       end
+    end
+
+    defp default_type(literal, _type) when is_bitstring(literal) do
+      bitstring_literal(literal)
     end
 
     defp default_type(literal, _type) when is_number(literal), do: to_string(literal)
@@ -1667,6 +1762,23 @@ if Code.ensure_loaded?(Postgrex) do
       end
     end
 
+    defp column_type(:duration, opts) do
+      precision = Keyword.get(opts, :precision)
+      fields = Keyword.get(opts, :fields)
+      generated = Keyword.get(opts, :generated)
+      type_name = ecto_to_db(:duration)
+
+      type =
+        cond do
+          fields && precision -> [type_name, " ", fields, ?(, to_string(precision), ?)]
+          precision -> [type_name, ?(, to_string(precision), ?)]
+          fields -> [type_name, " ", fields]
+          true -> [type_name]
+        end
+
+      [type, generated_expr(generated)]
+    end
+
     defp column_type(type, opts) do
       size = Keyword.get(opts, :size)
       precision = Keyword.get(opts, :precision)
@@ -1706,7 +1818,7 @@ if Code.ensure_loaded?(Postgrex) do
         "FOREIGN KEY (",
         quote_names(current_columns),
         ") REFERENCES ",
-        quote_name(ref.prefix || table.prefix, ref.table),
+        quote_name(Keyword.get(ref.options, :prefix, table.prefix), ref.table),
         ?(,
         quote_names(reference_columns),
         ?),
@@ -1824,6 +1936,13 @@ if Code.ensure_loaded?(Postgrex) do
 
     defp single_quote(value), do: [?', escape_string(value), ?']
 
+    defp bitstring_literal(value) do
+      size = bit_size(value)
+      <<val::size(size)>> = value
+
+      [?b, ?', val |> Integer.to_string(2) |> String.pad_leading(size, ["0"]), ?']
+    end
+
     defp intersperse_reduce(list, separator, user_acc, reducer, acc \\ [])
 
     defp intersperse_reduce([], _separator, user_acc, _reducer, acc),
@@ -1870,6 +1989,7 @@ if Code.ensure_loaded?(Postgrex) do
     defp ecto_to_db(:bigserial), do: "bigserial"
     defp ecto_to_db(:binary_id), do: "uuid"
     defp ecto_to_db(:string), do: "varchar"
+    defp ecto_to_db(:bitstring), do: "varbit"
     defp ecto_to_db(:binary), do: "bytea"
     defp ecto_to_db(:map), do: Application.fetch_env!(:ecto_sql, :postgres_map_type)
     defp ecto_to_db({:map, _}), do: Application.fetch_env!(:ecto_sql, :postgres_map_type)
@@ -1878,6 +1998,7 @@ if Code.ensure_loaded?(Postgrex) do
     defp ecto_to_db(:utc_datetime_usec), do: "timestamp"
     defp ecto_to_db(:naive_datetime), do: "timestamp"
     defp ecto_to_db(:naive_datetime_usec), do: "timestamp"
+    defp ecto_to_db(:duration), do: "interval"
     defp ecto_to_db(atom) when is_atom(atom), do: Atom.to_string(atom)
 
     defp ecto_to_db(type) do

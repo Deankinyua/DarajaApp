@@ -45,7 +45,9 @@ defmodule AshAuthentication.Phoenix.Components.Password.ResetForm do
           required(:strategy) => AshAuthentication.Strategy.t(),
           optional(:label) => String.t() | false,
           optional(:overrides) => [module],
-          optional(:current_tenant) => String.t()
+          optional(:current_tenant) => String.t(),
+          optional(:context) => map(),
+          optional(:auth_routes_prefix) => String.t()
         }
 
   @doc false
@@ -53,7 +55,7 @@ defmodule AshAuthentication.Phoenix.Components.Password.ResetForm do
   @spec update(props, Socket.t()) :: {:ok, Socket.t()}
   def update(assigns, socket) do
     strategy = assigns.strategy
-    form = blank_form(strategy)
+    form = blank_form(strategy, assigns[:context] || %{})
 
     socket =
       socket
@@ -63,6 +65,8 @@ defmodule AshAuthentication.Phoenix.Components.Password.ResetForm do
       |> assign_new(:inner_block, fn -> nil end)
       |> assign_new(:overrides, fn -> [AshAuthentication.Phoenix.Overrides.Default] end)
       |> assign_new(:current_tenant, fn -> nil end)
+      |> assign_new(:context, fn -> nil end)
+      |> assign_new(:auth_routes_prefix, fn -> nil end)
 
     {:ok, socket}
   end
@@ -86,9 +90,12 @@ defmodule AshAuthentication.Phoenix.Components.Password.ResetForm do
         phx-change="change"
         phx-target={@myself}
         action={
-          route_helpers(@socket).auth_path(
-            @socket.endpoint,
-            {@subject_name, Strategy.name(@strategy), :reset_request}
+          auth_path(
+            @socket,
+            @subject_name,
+            @auth_routes_prefix,
+            @strategy,
+            :reset_request
           )
         }
         method="POST"
@@ -146,7 +153,7 @@ defmodule AshAuthentication.Phoenix.Components.Password.ResetForm do
 
     socket =
       socket
-      |> assign(:form, blank_form(strategy))
+      |> assign(:form, blank_form(strategy, socket.assigns[:context] || %{}))
 
     socket =
       if flash do
@@ -169,18 +176,22 @@ defmodule AshAuthentication.Phoenix.Components.Password.ResetForm do
     Map.get(params, param_key, %{})
   end
 
-  defp blank_form(%{resettable: resettable} = strategy) when not is_nil(resettable) do
-    api = Info.authentication_domain!(strategy.resource)
+  defp blank_form(%{resettable: resettable} = strategy, context) when not is_nil(resettable) do
+    domain = Info.authentication_domain!(strategy.resource)
     subject_name = Info.authentication_subject_name!(strategy.resource)
 
     strategy.resource
     |> Form.for_action(resettable.request_password_reset_action_name,
-      api: api,
+      domain: domain,
       as: subject_name |> to_string(),
       id:
         "#{subject_name}-#{Strategy.name(strategy)}-#{resettable.request_password_reset_action_name}"
         |> slugify(),
-      context: %{strategy: strategy, private: %{ash_authentication?: true}}
+      context:
+        Ash.Helpers.deep_merge_maps(context, %{
+          strategy: strategy,
+          private: %{ash_authentication?: true}
+        })
     )
   end
 end

@@ -33,13 +33,16 @@ defmodule AshAuthentication.Phoenix.Components.MagicLink do
   alias AshAuthentication.{Info, Phoenix.Components.Password.Input, Strategy}
   alias AshPhoenix.Form
   alias Phoenix.LiveView.{Rendered, Socket}
-  import AshAuthentication.Phoenix.Components.Helpers, only: [route_helpers: 1]
+  import AshAuthentication.Phoenix.Components.Helpers, only: [auth_path: 5]
   import Slug
+  require Logger
 
   @type props :: %{
           required(:strategy) => AshAuthentication.Strategy.t(),
           optional(:overrides) => [module],
-          optional(:current_tenant) => String.t()
+          optional(:current_tenant) => String.t(),
+          optional(:context) => map(),
+          optional(:auth_routes_prefix) => String.t()
         }
 
   @doc false
@@ -49,7 +52,7 @@ defmodule AshAuthentication.Phoenix.Components.MagicLink do
     strategy = assigns.strategy
     subject_name = Info.authentication_subject_name!(strategy.resource)
 
-    form = blank_form(strategy)
+    form = blank_form(strategy, assigns[:context] || %{})
 
     socket =
       socket
@@ -58,6 +61,8 @@ defmodule AshAuthentication.Phoenix.Components.MagicLink do
       |> assign_new(:overrides, fn -> [AshAuthentication.Phoenix.Overrides.Default] end)
       |> assign_new(:label, fn -> nil end)
       |> assign_new(:current_tenant, fn -> nil end)
+      |> assign_new(:context, fn -> %{} end)
+      |> assign_new(:auth_routes_prefix, fn -> nil end)
 
     {:ok, socket}
   end
@@ -79,12 +84,7 @@ defmodule AshAuthentication.Phoenix.Components.MagicLink do
         phx-submit="submit"
         phx-trigger-action={@trigger_action}
         phx-target={@myself}
-        action={
-          route_helpers(@socket).auth_path(
-            @socket.endpoint,
-            {@subject_name, Strategy.name(@strategy), :request}
-          )
-        }
+        action={auth_path(@socket, @subject_name, @auth_routes_prefix, @strategy, :request)}
         method="POST"
         class={override_for(@overrides, :form_class)}
       >
@@ -123,17 +123,34 @@ defmodule AshAuthentication.Phoenix.Components.MagicLink do
     socket.assigns.form
     |> Form.validate(params)
     |> Form.submit(
-      before_submit: fn changeset ->
-        changeset
-        |> Ash.Changeset.set_tenant(socket.assigns.current_tenant)
+      before_submit: fn
+        %Ash.Query{} = query ->
+          query
+          |> Ash.Query.set_tenant(socket.assigns.current_tenant)
+
+        %Ash.ActionInput{} = action_input ->
+          action_input
+          |> Ash.ActionInput.set_tenant(socket.assigns.current_tenant)
       end
     )
+    |> case do
+      :ok ->
+        :ok
+
+      {:ok, _result} ->
+        :ok
+
+      {:error, form} ->
+        Logger.warning(
+          "Error sending magic link email\n\n#{inspect(AshPhoenix.Form.errors(form, for_path: :all), pretty: true)}"
+        )
+    end
 
     flash = override_for(socket.assigns.overrides, :request_flash_text)
 
     socket =
       socket
-      |> assign(:form, blank_form(strategy))
+      |> assign(:form, blank_form(strategy, socket.assigns[:context] || %{}))
 
     socket =
       if flash do
@@ -156,17 +173,21 @@ defmodule AshAuthentication.Phoenix.Components.MagicLink do
     Map.get(params, param_key, %{})
   end
 
-  defp blank_form(strategy) do
-    api = Info.authentication_domain!(strategy.resource)
+  defp blank_form(strategy, context) do
+    domain = Info.authentication_domain!(strategy.resource)
     subject_name = Info.authentication_subject_name!(strategy.resource)
 
     strategy.resource
     |> Form.for_action(strategy.request_action_name,
-      api: api,
+      domain: domain,
       as: subject_name |> to_string(),
       id:
         "#{subject_name}-#{Strategy.name(strategy)}-#{strategy.request_action_name}" |> slugify(),
-      context: %{strategy: strategy, private: %{ash_authentication?: true}}
+      context:
+        Ash.Helpers.deep_merge_maps(context, %{
+          strategy: strategy,
+          private: %{ash_authentication?: true}
+        })
     )
   end
 end

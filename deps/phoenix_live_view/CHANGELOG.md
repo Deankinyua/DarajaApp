@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.20.17 (2024-06-21)
+
+### Bug fixes
+* Fix formatter adding newlines in script tags
+
+## 0.20.16 (2024-06-20)
+
+### Bug fixes
+* Fix bug introduced in 0.20.15 causing incorrect patching on form elements when awaiting acknowledgements
+
+## 0.20.15 (2024-06-18)
+
+### Enhancements
+  * Warn when rendering an input named "id"
+  * Warn on mismatched client and server versions
+  * Allow form recovery to work on forms in nested LiveViews
+  * Allow using form/3 with inputs outside the form
+  * Allow setting page title to an empty string
+  * Fix warnings on Elixir 1.17
+
+### Bug fixes
+  * Fix attributes of existing stream items not being updated on reset
+  * Fix nested LiveView within streams becoming empty when reset
+  * Fix `phx-mounted` firing twice, first on dead render, then on live render, leading to errors when a LiveComponent has not yet mounted
+  * Fix `JS.toggle_class` error when used with a transition
+  * Fix phx-debounce=blur incorrectly sending change event to the next page in some cirumstances
+  * Fix race condition when destroying Live Components while transitions are still running
+  * Fix page reload when disconnecting LiveSocket if using Bandit
+  * Fix formatter changing `<%` to `<%=` when it shouldn't
+  * Fix updated form values not being sent in some circumstances when phx-trigger-action is used
+  * Fix phx-viewport bindings when html or body element has overflow property
+
+### Deprecations
+  * Deprecate `live_flash` in favor of `Phoenix.Flash.get`
+  * Deprecate `push_redirect` in favor of `push_navigate`
+
+### Removal of previously deprecated functionality
+  * `phx-capture-click` has been removed (deprecated in 0.17.0)
+  * `live_component/2` and `live_component/3` helpers (not the function component) have been removed
+
 ## 0.20.14 (2024-03-13)
 
 ### Bug fixes
@@ -113,6 +153,9 @@
   * Perform client redirect when trying to live nav from dead client to avoid extra round trip
   * Allow regular buttons with name/value attributes to send form events and adjusted dynamic form documentation to reflect this
   * Allow form attribute on `live_file_input`
+
+### Removal of previously deprecated functionality
+  * `live_component/2` and `live_component/3` helpers (not the function component) have been removed
 
 ## 0.20.3 (2024-01-02)
 
@@ -274,7 +317,7 @@
 ### Enhancements
   * Support [`submitter`](https://developer.mozilla.org/en-US/docs/Web/API/SubmitEvent/submitter) on form submit events.
   * Avoid compile-time dependency for `attr` when referencing structs
-  * Validate reserved assigns. Attempting to assign `:uploads`, `:streams`, `:live_action`, `:socket`, `:myself` will now raise in `LiveView` and `LiveComponent`
+  * Validate reserved assigns. Attempting to assign `:uploads`, `:streams`, `:live_action`, `:socket`, `:myself` will now raise in LiveView and LiveComponent
 
 ## 0.18.16 (2023-02-23)
 
@@ -1329,7 +1372,7 @@ The new implementation will check there is a button at `#term .buttons a`, with 
   - Add `put_live_layout` plug to put the root layout used for live routes
   - Allow `redirect` and `push_redirect` from mount
   - Use acknowledgement tracking to avoid patching inputs until the server has processed the form event
-  - Add css loading states to all phx bound elements with event specific css classes
+  - Add CSS loading states to all phx bound elements with event specific CSS classes
   - Dispatch `phx:page-loading-start` and `phx:page-loading-stop` on window for live navigation, initial page loads, and form submits, for user controlled page loading integration
   - Allow any phx bound element to specify `phx-page-loading` to dispatch loading events above when the event is pushed
   - Add client side latency simulator with new `enableLatencySim(milliseconds)` and `disableLatencySim()`
@@ -1535,12 +1578,12 @@ let liveSocket = new LiveSocket("/live", Socket, {...})
 
 ### Backwards incompatible changes
   - `phx-value` has no effect, use `phx-value-*` instead
-  - The `:path_params` key in session has no effect (use `handle_params` in `LiveView` instead)
+  - The `:path_params` key in session has no effect (use `handle_params` in LiveView instead)
 
 ## 0.1.1 (2019-08-27)
 
 ### Enhancements
-  - Use optimized `insertAdjacentHTML` for faster append/prepend and proper css animation handling
+  - Use optimized `insertAdjacentHTML` for faster append/prepend and proper CSS animation handling
   - Allow for replacing previously appended/prepended elements by replacing duplicate IDs during append/prepend instead of adding new DOM nodes
 
 ### Bug Fixes

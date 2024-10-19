@@ -148,19 +148,21 @@ defmodule Ash.Type.NewType do
       end
 
       @impl Ash.Type
+      def matches_type?(type, constraints) do
+        unquote(subtype_of).matches_type?(type, constraints)
+      end
+
+      @impl Ash.Type
       def cast_input(value, constraints) do
         with {:ok, value} <- unquote(subtype_of).cast_input(value, constraints) do
-          unquote(subtype_of).apply_constraints(value, constraints)
+          Ash.Type.apply_constraints(unquote(subtype_of), value, constraints)
         end
       end
 
-      if function_exported?(subtype_of, :cast_input_array, 2) do
-        @impl Ash.Type
-        def cast_input_array(value, constraints) do
-          unquote(subtype_of).cast_input_array(
-            value,
-            constraints
-          )
+      @impl Ash.Type
+      def cast_input_array(value, constraints) do
+        with {:ok, value} <- unquote(subtype_of).cast_input_array(value, constraints) do
+          Ash.Type.apply_constraints({:array, unquote(subtype_of)}, value, items: constraints)
         end
       end
 
@@ -177,7 +179,7 @@ defmodule Ash.Type.NewType do
         )
       end
 
-      if function_exported?(subtype_of, :cast_stored_array, 3) do
+      if function_exported?(subtype_of, :cast_stored_array, 2) do
         @impl Ash.Type
         def cast_stored_array(value, constraints) do
           unquote(subtype_of).cast_stored_array(
@@ -185,6 +187,8 @@ defmodule Ash.Type.NewType do
             constraints
           )
         end
+
+        defoverridable cast_stored_array: 2
       end
 
       if function_exported?(subtype_of, :include_source, 2) do
@@ -245,6 +249,8 @@ defmodule Ash.Type.NewType do
             constraints
           )
         end
+
+        defoverridable dump_to_native_array: 2
       end
 
       @impl Ash.Type
@@ -337,6 +343,16 @@ defmodule Ash.Type.NewType do
       end
 
       @impl Ash.Type
+      def apply_atomic_constraints(value, constraints) do
+        unquote(subtype_of).apply_atomic_constraints(value, constraints)
+      end
+
+      @impl Ash.Type
+      def apply_atomic_constraints_array(value, constraints) do
+        unquote(subtype_of).apply_atomic_constraints_array(value, constraints)
+      end
+
+      @impl Ash.Type
       def apply_constraints(value, _constraints) do
         {:ok, value}
       end
@@ -365,6 +381,8 @@ defmodule Ash.Type.NewType do
 
       defoverridable storage_type: 1,
                      cast_input: 2,
+                     cast_stored: 2,
+                     dump_to_native: 2,
                      type_constraints: 2
     end
   end

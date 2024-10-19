@@ -1,5 +1,5 @@
 {application,plug_crypto,
-             [{config_mtime,1719649741},
+             [{config_mtime,1729332001},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir,crypto]},
               {description,"Crypto-related functionality for the web"},

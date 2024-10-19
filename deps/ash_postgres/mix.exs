@@ -5,7 +5,7 @@ defmodule AshPostgres.MixProject do
   The PostgreSQL data layer for Ash Framework
   """
 
-  @version "2.0.6"
+  @version "2.4.9"
 
   def project do
     [
@@ -87,6 +87,7 @@ defmodule AshPostgres.MixProject do
       extras: [
         {"README.md", title: "Home"},
         "documentation/tutorials/get-started-with-ash-postgres.md",
+        "documentation/tutorials/set-up-with-existing-database.md",
         "documentation/topics/about-ash-postgres/what-is-ash-postgres.md",
         "documentation/topics/resources/references.md",
         "documentation/topics/resources/polymorphic-resources.md",
@@ -133,6 +134,7 @@ defmodule AshPostgres.MixProject do
           AshPostgres.Statement
         ],
         Types: [
+          AshPostgres.Ltree,
           AshPostgres.Type,
           AshPostgres.Tsquery,
           AshPostgres.Tsvector,
@@ -162,13 +164,17 @@ defmodule AshPostgres.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:ash, ash_version("~> 3.0 and >= 3.0.7")},
-      {:ash_sql, ash_sql_version("~> 0.2")},
-      {:ecto_sql, "~> 3.9"},
-      {:ecto, "~> 3.9"},
+      {:ash, ash_version("~> 3.4 and >= 3.4.28")},
+      {:ash_sql, ash_sql_version("~> 0.2 and >= 0.2.30")},
+      {:igniter, "~> 0.3 and >= 0.3.42"},
+      {:ecto_sql, "~> 3.12"},
+      {:ecto, "~> 3.12 and >= 3.12.1"},
       {:jason, "~> 1.0"},
       {:postgrex, ">= 0.0.0"},
+      {:inflex, "~> 2.1"},
+      {:owl, "~> 0.11"},
       # dev/test dependencies
+      {:eflame, "~> 1.0", only: [:dev, :test]},
       {:simple_sat, "~> 0.1", only: [:dev, :test]},
       {:benchee, "~> 1.1", only: [:dev, :test]},
       {:git_ops, "~> 2.5", only: [:dev, :test]},

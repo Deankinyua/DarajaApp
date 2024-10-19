@@ -38,7 +38,7 @@ defmodule AshAuthentication.Phoenix.Components.Reset.Form do
   alias AshAuthentication.{Info, Phoenix.Components.Password.Input, Strategy}
   alias AshPhoenix.Form
   alias Phoenix.LiveView.{Rendered, Socket}
-  import AshAuthentication.Phoenix.Components.Helpers, only: [route_helpers: 1]
+  import AshAuthentication.Phoenix.Components.Helpers, only: [auth_path: 5]
   import PhoenixHTMLHelpers.Form
   import Slug
 
@@ -47,7 +47,8 @@ defmodule AshAuthentication.Phoenix.Components.Reset.Form do
           required(:strategy) => AshAuthentication.Strategy.t(),
           required(:token) => String.t(),
           optional(:label) => String.t() | false,
-          optional(:overrides) => [module]
+          optional(:overrides) => [module],
+          optional(:auth_routes_prefix) => String.t()
         }
 
   @doc false
@@ -55,7 +56,7 @@ defmodule AshAuthentication.Phoenix.Components.Reset.Form do
   @spec update(props, Socket.t()) :: {:ok, Socket.t()}
   def update(assigns, socket) do
     strategy = assigns.strategy
-    api = Info.authentication_domain!(strategy.resource)
+    domain = Info.authentication_domain!(strategy.resource)
     subject_name = Info.authentication_subject_name!(strategy.resource)
 
     resettable = strategy.resettable
@@ -63,7 +64,7 @@ defmodule AshAuthentication.Phoenix.Components.Reset.Form do
     form =
       strategy.resource
       |> Form.for_action(strategy.resettable.password_reset_action_name,
-        api: api,
+        domain: domain,
         as: subject_name |> to_string(),
         id:
           "#{subject_name}-#{Strategy.name(strategy)}-#{resettable.password_reset_action_name}"
@@ -82,6 +83,7 @@ defmodule AshAuthentication.Phoenix.Components.Reset.Form do
       )
       |> assign_new(:label, fn -> humanize(resettable.password_reset_action_name) end)
       |> assign_new(:overrides, fn -> [AshAuthentication.Phoenix.Overrides.Default] end)
+      |> assign_new(:auth_routes_prefix, fn -> nil end)
 
     {:ok, socket}
   end
@@ -104,9 +106,12 @@ defmodule AshAuthentication.Phoenix.Components.Reset.Form do
         phx-trigger-action={@trigger_action}
         phx-target={@myself}
         action={
-          route_helpers(@socket).auth_path(
-            @socket.endpoint,
-            {@subject_name, Strategy.name(@strategy), :reset}
+          auth_path(
+            @socket,
+            @subject_name,
+            @auth_routes_prefix,
+            @strategy,
+            :reset
           )
         }
         method="POST"

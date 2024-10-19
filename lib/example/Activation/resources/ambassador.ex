@@ -55,7 +55,7 @@ defmodule Example.Activation.Ambassador do
       get? true
       # Filters the `:id` given in the argument
       # against the `id` of each element in the resource
-      filter expr(id == ^arg(:id))
+      filter expr(ambassador_id == ^arg(:ambassador_id))
     end
   end
 end

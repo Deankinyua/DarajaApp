@@ -57,6 +57,7 @@ defmodule Ash.DataLayer.Ets do
       :domain,
       :distinct,
       :distinct_sort,
+      context: %{},
       calculations: [],
       aggregates: [],
       relationships: %{},
@@ -217,10 +218,24 @@ defmodule Ash.DataLayer.Ets do
   def can?(_, :transact), do: false
   def can?(_, {:filter_expr, _}), do: true
 
-  def can?(resource, {:join, other_resource}) do
-    # See the comment in can?/2 in mnesia data layer to explain this
-    not (Ash.DataLayer.Ets.Info.private?(resource) and
-           Ash.DataLayer.data_layer(other_resource) == Ash.DataLayer.Mnesia)
+  case Application.compile_env(:ash, :no_join_mnesia_ets) || false do
+    false ->
+      def can?(_, {:join, _resource}) do
+        # we synthesize all filters under the hood using `Ash.Filter.Runtime`
+        true
+      end
+
+    true ->
+      def can?(_, {:join, _resource}) do
+        # we synthesize all filters under the hood using `Ash.Filter.Runtime`
+        false
+      end
+
+    :dynamic ->
+      def can?(_, {:join, resource}) do
+        Ash.Resource.Info.data_layer(resource) == __MODULE__ ||
+          Application.get_env(:ash, :mnesia_ets_join?, true)
+      end
   end
 
   def can?(_, :nested_expressions), do: true
@@ -274,6 +289,12 @@ defmodule Ash.DataLayer.Ets do
 
   @doc false
   @impl true
+  def set_context(_resource, query, context) do
+    {:ok, %{query | context: context}}
+  end
+
+  @doc false
+  @impl true
   def filter(query, filter, _resource) do
     if query.filter do
       {:ok, %{query | filter: Ash.Filter.add_to_filter!(query.filter, filter)}}
@@ -313,11 +334,17 @@ defmodule Ash.DataLayer.Ets do
             resource: resource,
             uniq?: uniq?,
             include_nil?: include_nil?,
-            default_value: default_value
+            default_value: default_value,
+            context: context
           },
           {:ok, acc} ->
             results
-            |> filter_matches(Map.get(query || %{}, :filter), domain)
+            |> filter_matches(
+              Map.get(query || %{}, :filter),
+              domain,
+              context[:tenant],
+              context[:actor]
+            )
             |> case do
               {:ok, matches} ->
                 field = field || Enum.at(Ash.Resource.Info.primary_key(resource), 0)
@@ -356,20 +383,31 @@ defmodule Ash.DataLayer.Ets do
           tenant: tenant,
           calculations: calculations,
           aggregates: aggregates,
-          domain: domain
+          domain: domain,
+          context: context
         },
         _resource,
         parent \\ nil
       ) do
     with {:ok, records} <- get_records(resource, tenant),
-         {:ok, records} <- filter_matches(records, filter, domain, parent),
+         {:ok, records} <-
+           filter_matches(
+             records,
+             filter,
+             domain,
+             context[:private][:tenant],
+             context[:private][:actor],
+             parent
+           ),
          records <- Sort.runtime_sort(records, distinct_sort || sort, domain: domain),
          records <- Sort.runtime_distinct(records, distinct, domain: domain),
          records <- Sort.runtime_sort(records, sort, domain: domain),
          records <- Enum.drop(records, offset || []),
          records <- do_limit(records, limit),
-         {:ok, records} <- do_add_aggregates(records, domain, resource, aggregates),
-         {:ok, records} <- do_add_calculations(records, resource, calculations, domain) do
+         {:ok, records} <-
+           do_add_aggregates(records, domain, resource, aggregates),
+         {:ok, records} <-
+           do_add_calculations(records, resource, calculations, domain) do
       {:ok, records}
     else
       {:error, error} ->
@@ -392,26 +430,44 @@ defmodule Ash.DataLayer.Ets do
           {source_query, source_attribute, destination_attribute, relationship}
         ]
       ) do
-    source_attributes = Enum.map(root_data, &Map.get(&1, source_attribute))
+    source_query =
+      source_query
+      |> Ash.Query.unset(:load)
+      |> Ash.Query.unset(:page)
+      |> Ash.Query.set_context(%{private: %{internal?: true}})
+      |> Ash.Query.set_domain(query.domain)
+
+    primary_key = Ash.Resource.Info.primary_key(source_query.resource)
+
+    source_query =
+      case primary_key do
+        [] ->
+          source_attributes = Enum.map(root_data, &Map.get(&1, source_attribute))
+
+          Ash.Query.filter(source_query, ^ref(source_attribute) in ^source_attributes)
+
+        [field] ->
+          source_attributes = Enum.map(root_data, &Map.get(&1, field))
+          Ash.Query.filter(source_query, ^ref(field) in ^source_attributes)
+
+        fields ->
+          filter = [
+            or:
+              Enum.map(root_data, fn record ->
+                [and: Map.take(record, fields) |> Map.to_list()]
+              end)
+          ]
+
+          Ash.Query.do_filter(source_query, filter)
+      end
 
     source_query
-    |> Ash.Query.filter(^ref(source_attribute) in ^source_attributes)
-    |> Ash.Query.set_context(%{private: %{internal?: true}})
-    |> Ash.Query.unset(:load)
-    |> Ash.Query.unset(:select)
-    |> Ash.Query.unset(:page)
     |> Ash.Actions.Read.unpaginated_read(nil, authorize?: false)
     |> case do
       {:error, error} ->
         {:error, error}
 
       {:ok, root_data} ->
-        parent_pkey =
-          case root_data do
-            [%resource{} | _] -> Ash.Resource.Info.primary_key(resource)
-            [] -> []
-          end
-
         root_data
         |> Enum.reduce_while({:ok, []}, fn parent, {:ok, results} ->
           new_filter =
@@ -441,7 +497,7 @@ defmodule Ash.DataLayer.Ets do
               new_results =
                 Enum.map(
                   new_results,
-                  &Map.put(&1, :__lateral_join_source__, Map.take(parent, parent_pkey))
+                  &Map.put(&1, :__lateral_join_source__, Map.take(parent, primary_key))
                 )
 
               {:cont, {:ok, new_results ++ results}}
@@ -458,26 +514,44 @@ defmodule Ash.DataLayer.Ets do
         {through_query, destination_attribute_on_join_resource, destination_attribute,
          _through_relationship}
       ]) do
-    source_attributes = Enum.map(root_data, &Map.get(&1, source_attribute))
+    source_query =
+      source_query
+      |> Ash.Query.unset(:load)
+      |> Ash.Query.unset(:page)
+      |> Ash.Query.set_context(%{private: %{internal?: true}})
+      |> Ash.Query.set_domain(query.domain)
+
+    primary_key = Ash.Resource.Info.primary_key(source_query.resource)
+
+    source_query =
+      case primary_key do
+        [] ->
+          source_attributes = Enum.map(root_data, &Map.get(&1, source_attribute))
+
+          Ash.Query.filter(source_query, ^ref(source_attribute) in ^source_attributes)
+
+        [field] ->
+          source_attributes = Enum.map(root_data, &Map.get(&1, field))
+          Ash.Query.filter(source_query, ^ref(field) in ^source_attributes)
+
+        fields ->
+          filter = [
+            or:
+              Enum.map(root_data, fn record ->
+                [and: Map.take(record, fields) |> Map.to_list()]
+              end)
+          ]
+
+          Ash.Query.do_filter(source_query, filter)
+      end
 
     source_query
-    |> Ash.Query.unset(:load)
-    |> Ash.Query.unset(:page)
-    |> Ash.Query.filter(^ref(source_attribute) in ^source_attributes)
-    |> Ash.Query.set_context(%{private: %{internal?: true}})
-    |> Ash.Query.set_domain(query.domain)
     |> Ash.read(authorize?: false)
     |> case do
       {:error, error} ->
         {:error, error}
 
       {:ok, root_data} ->
-        parent_pkey =
-          case root_data do
-            [%resource{} | _] -> Ash.Resource.Info.primary_key(resource)
-            [] -> []
-          end
-
         root_data
         |> Enum.reduce_while({:ok, []}, fn parent, {:ok, results} ->
           through_query
@@ -512,13 +586,14 @@ defmodule Ash.DataLayer.Ets do
                     Enum.flat_map(new_results, fn result ->
                       join_data
                       |> Enum.flat_map(fn join_row ->
+                        # TODO: use `Ash.Type.equal?`
                         if Map.get(join_row, destination_attribute_on_join_resource) ==
                              Map.get(result, destination_attribute) do
                           [
                             Map.put(
                               result,
                               :__lateral_join_source__,
-                              Map.take(parent, parent_pkey)
+                              Map.take(parent, primary_key)
                             )
                           ]
                         else
@@ -564,7 +639,9 @@ defmodule Ash.DataLayer.Ets do
             case Ash.Expr.eval_hydrated(expression,
                    record: record,
                    resource: resource,
-                   domain: domain
+                   domain: domain,
+                   actor: calculation.context.actor,
+                   tenant: calculation.context.tenant
                  ) do
               {:ok, value} ->
                 if calculation.load do
@@ -647,6 +724,7 @@ defmodule Ash.DataLayer.Ets do
                      |> Ash.Query.load(relationship_path_to_load(relationship_path, field))
                      |> Ash.Query.set_context(%{private: %{internal?: true}}),
                      domain: domain,
+                     tenant: context[:tenant],
                      actor: context[:actor],
                      authorize?: false
                    ),
@@ -659,7 +737,14 @@ defmodule Ash.DataLayer.Ets do
                      [record],
                      domain
                    ),
-                 {:ok, filtered} <- filter_matches(related, query.filter, domain),
+                 {:ok, filtered} <-
+                   filter_matches(
+                     related,
+                     query.filter,
+                     domain,
+                     context[:tenant],
+                     context[:actor]
+                   ),
                  sorted <- Sort.runtime_sort(filtered, query.sort, domain: domain) do
               field = field || Enum.at(Ash.Resource.Info.primary_key(query.resource), 0)
 
@@ -947,21 +1032,56 @@ defmodule Ash.DataLayer.Ets do
     end
   end
 
-  defp filter_matches(records, filter, domain, parent \\ nil)
-  defp filter_matches(records, nil, _domain, _parent), do: {:ok, records}
+  defp filter_matches(
+         records,
+         filter,
+         domain,
+         _tenant,
+         actor,
+         parent \\ nil,
+         conflicting_upsert_values \\ nil
+       )
 
-  defp filter_matches(records, filter, domain, parent) do
-    Ash.Filter.Runtime.filter_matches(domain, records, filter, parent: parent)
+  defp filter_matches([], _, _domain, _tenant, _actor, _parent, _conflicting_upsert_values),
+    do: {:ok, []}
+
+  defp filter_matches(
+         records,
+         nil,
+         _domain,
+         _tenant,
+         _actor,
+         _parent,
+         _conflicting_upsert_values
+       ),
+       do: {:ok, records}
+
+  defp filter_matches(
+         records,
+         filter,
+         domain,
+         tenant,
+         actor,
+         parent,
+         conflicting_upsert_values
+       ) do
+    Ash.Filter.Runtime.filter_matches(domain, records, filter,
+      parent: parent,
+      tenant: tenant,
+      actor: actor,
+      conflicting_upsert_values: conflicting_upsert_values
+    )
   end
 
   @doc false
   @impl true
-  def upsert(resource, changeset, keys, from_bulk_create? \\ false) do
+  def upsert(resource, changeset, keys, identity, opts \\ [from_bulk_create?: false]) do
     pkey = Ash.Resource.Info.primary_key(resource)
     keys = keys || pkey
 
-    if Enum.any?(keys, &is_nil(Ash.Changeset.get_attribute(changeset, &1))) do
-      create(resource, changeset, from_bulk_create?)
+    if (is_nil(identity) || !identity.nils_distinct?) &&
+         Enum.any?(keys, &is_nil(Ash.Changeset.get_attribute(changeset, &1))) do
+      create(resource, changeset, opts[:from_bulk_create?])
     else
       key_filters =
         Enum.map(keys, fn key ->
@@ -970,14 +1090,18 @@ defmodule Ash.DataLayer.Ets do
              Map.get(changeset.params, to_string(key))}
         end)
 
-      query = Ash.Query.do_filter(resource, and: [key_filters])
-
       query =
-        if is_nil(changeset.filter) do
-          query
-        else
-          Ash.Query.do_filter(query, changeset.filter)
-        end
+        resource
+        |> Ash.Query.do_filter(and: [key_filters])
+        |> then(fn query ->
+          if is_nil(identity) || is_nil(identity.where) do
+            query
+          else
+            Ash.Query.do_filter(query, identity.where)
+          end
+        end)
+
+      to_set = Ash.Changeset.set_on_upsert(changeset, keys)
 
       resource
       |> resource_to_query(changeset.domain)
@@ -986,28 +1110,71 @@ defmodule Ash.DataLayer.Ets do
       |> run_query(resource)
       |> case do
         {:ok, []} ->
-          create(resource, changeset, from_bulk_create?)
+          create(resource, changeset, opts[:from_bulk_create?])
 
         {:ok, [result]} ->
-          to_set = Ash.Changeset.set_on_upsert(changeset, keys)
+          with {:ok, conflicting_upsert_values} <- Ash.Changeset.apply_attributes(changeset),
+               {:ok, [^result]} <-
+                 upsert_conflict_check(
+                   changeset,
+                   result,
+                   conflicting_upsert_values
+                 ) do
+            changeset =
+              changeset
+              |> Map.put(:attributes, %{})
+              |> Map.put(:data, result)
+              |> Ash.Changeset.force_change_attributes(to_set)
 
-          changeset =
-            changeset
-            |> Map.put(:attributes, %{})
-            |> Map.put(:data, result)
-            |> Ash.Changeset.force_change_attributes(to_set)
+            update(
+              resource,
+              %{changeset | action_type: :update, filter: nil},
+              Map.take(result, pkey),
+              opts[:from_bulk_create?]
+            )
+          else
+            {:ok, []} ->
+              {:ok, Ash.Resource.put_metadata(result, :upsert_skipped, true)}
 
-          update(
-            resource,
-            %{changeset | action_type: :update},
-            Map.take(result, pkey),
-            from_bulk_create?
-          )
+            {:error, reason} ->
+              {:error, reason}
+          end
 
         {:ok, _} ->
           {:error, "Multiple records matching keys"}
       end
     end
+  end
+
+  @spec upsert_conflict_check(
+          changeset :: Ash.Changeset.t(),
+          subject :: record,
+          conflicting_upsert_values :: record
+        ) :: {:ok, [record]} | {:error, reason}
+        when record: Ash.Resource.record(), reason: term()
+  defp upsert_conflict_check(changeset, subject, conflicting_upsert_values)
+
+  defp upsert_conflict_check(
+         %Ash.Changeset{filter: nil},
+         result,
+         _conflicting_upsert_values
+       ),
+       do: {:ok, [result]}
+
+  defp upsert_conflict_check(
+         %Ash.Changeset{filter: filter, domain: domain, context: context},
+         result,
+         conflicting_upsert_values
+       ) do
+    filter_matches(
+      [result],
+      filter,
+      domain,
+      context.private[:tenant],
+      context.private[:actor],
+      nil,
+      conflicting_upsert_values
+    )
   end
 
   @impl true
@@ -1024,18 +1191,28 @@ defmodule Ash.DataLayer.Ets do
             private: %{upsert_fields: options[:upsert_fields] || []}
           })
 
-        case upsert(resource, changeset, options.upsert_keys, true) do
+        case upsert(
+               resource,
+               changeset,
+               options.upsert_keys,
+               options.identity,
+               Map.put(options, :from_bulk_create?, true)
+             ) do
           {:ok, result} ->
-            {:cont,
-             {:ok,
-              [
-                Ash.Resource.put_metadata(
-                  result,
-                  :bulk_create_index,
-                  changeset.context.bulk_create.index
-                )
-                | results
-              ]}}
+            if Ash.Resource.get_metadata(result, :upsert_skipped) do
+              {:cont, {:ok, results}}
+            else
+              {:cont,
+               {:ok,
+                [
+                  Ash.Resource.put_metadata(
+                    result,
+                    :bulk_create_index,
+                    changeset.context.bulk_create.index
+                  )
+                  | results
+                ]}}
+            end
 
           {:error, error} ->
             {:halt, {:error, error}}
@@ -1240,10 +1417,17 @@ defmodule Ash.DataLayer.Ets do
   @doc false
   @impl true
   def destroy(resource, %{data: record, filter: filter} = changeset) do
-    do_destroy(resource, record, changeset.tenant, filter, changeset.domain)
+    do_destroy(
+      resource,
+      record,
+      changeset.tenant,
+      filter,
+      changeset.domain,
+      changeset.context[:private][:actor]
+    )
   end
 
-  defp do_destroy(resource, record, tenant, filter, domain) do
+  defp do_destroy(resource, record, tenant, filter, domain, actor) do
     with {:ok, table} <- wrap_or_create_table(resource, tenant) do
       pkey = Map.take(record, Ash.Resource.Info.primary_key(resource))
 
@@ -1251,7 +1435,7 @@ defmodule Ash.DataLayer.Ets do
         case ETS.Set.get(table, pkey) do
           {:ok, {_key, record}} when is_map(record) ->
             with {:ok, record} <- cast_record(record, resource),
-                 {:ok, [_]} <- filter_matches([record], filter, domain) do
+                 {:ok, [_]} <- filter_matches([record], filter, domain, tenant, actor) do
               with {:ok, _} <- ETS.Set.delete(table, pkey) do
                 :ok
               end
@@ -1345,7 +1529,9 @@ defmodule Ash.DataLayer.Ets do
              table,
              {pkey, changeset.attributes, changeset.atomics, changeset.filter},
              changeset.domain,
-             resource
+             changeset.tenant,
+             resource,
+             changeset.context[:private][:actor]
            ),
          {:ok, record} <- cast_record(record, resource) do
       new_pkey = pkey_map(resource, record)
@@ -1390,7 +1576,14 @@ defmodule Ash.DataLayer.Ets do
     end)
   end
 
-  defp do_update(table, {pkey, record, atomics, changeset_filter}, domain, resource) do
+  defp do_update(
+         table,
+         {pkey, record, atomics, changeset_filter},
+         domain,
+         tenant,
+         resource,
+         actor
+       ) do
     attributes = resource |> Ash.Resource.Info.attributes()
 
     case dump_to_native(record, attributes) do
@@ -1399,7 +1592,7 @@ defmodule Ash.DataLayer.Ets do
           {:ok, {_key, record}} when is_map(record) ->
             with {:ok, casted_record} <- cast_record(record, resource),
                  {:ok, [casted_record]} <-
-                   filter_matches([casted_record], changeset_filter, domain) do
+                   filter_matches([casted_record], changeset_filter, domain, tenant, actor) do
               case atomics do
                 empty when empty in [nil, []] ->
                   data = Map.merge(record, casted)
@@ -1474,7 +1667,7 @@ defmodule Ash.DataLayer.Ets do
   end
 
   defp unload_relationships(resource, record) do
-    empty = resource.__struct__
+    empty = resource.__struct__()
 
     resource
     |> Ash.Resource.Info.relationships()
@@ -1523,10 +1716,22 @@ defmodule Ash.DataLayer.Ets do
   end
 
   defp bulk_create_operation(
-         %{upsert?: true, upsert_keys: upsert_keys, upsert_fields: upsert_fields},
+         %{
+           upsert?: true,
+           upsert_keys: upsert_keys,
+           upsert_fields: upsert_fields,
+           upsert_where: expr
+         },
          stream
        ) do
-    "Upserting #{Enum.count(stream)} on #{inspect(upsert_keys)}, setting #{inspect(List.wrap(upsert_fields))}"
+    where_expr =
+      if is_nil(expr) do
+        ""
+      else
+        "where #{inspect(expr)}"
+      end
+
+    "Upserting #{Enum.count(stream)} on #{inspect(upsert_keys)} #{where_expr}, setting #{inspect(List.wrap(upsert_fields))}"
   end
 
   defp bulk_create_operation(_options, stream) do

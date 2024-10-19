@@ -142,6 +142,9 @@ defmodule AshAuthentication.Phoenix.Overrides.Default do
     mt-4 mb-4
     """
 
+    set :password_input_label, "Password"
+    set :password_confirmation_input_label, "Password Confirmation"
+    set :identity_input_label, "Email"
     set :error_ul, "text-red-400 font-light my-3 italic text-sm"
     set :error_li, nil
     set :input_debounce, 350
@@ -158,5 +161,18 @@ defmodule AshAuthentication.Phoenix.Overrides.Default do
     """
 
     set :icon_class, "-ml-0.4 mr-2 h-4 w-4"
+  end
+
+  override Components.Apple do
+    set :root_class, "w-full mt-2 mb-4"
+
+    set :link_class, """
+    w-full flex justify-center px-4 border border-transparent rounded-md
+    shadow-sm text-sm font-medium text-white bg-black focus:outline-none
+    focus:ring-2 focus:ring-offset-2 focus:ring-black inline-flex items-center
+    dark:bg-white dark:text-black dark:ring-white
+    """
+
+    set :icon_class, ""
   end
 end

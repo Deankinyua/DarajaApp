@@ -16,6 +16,7 @@ defimpl Reactor.Dsl.Build, for: Ash.Reactor.Dsl.Action do
         arguments
         |> maybe_append(action.actor)
         |> maybe_append(action.tenant)
+        |> maybe_append(action.context)
         |> Enum.concat(action.wait_for)
 
       action_options =
@@ -38,10 +39,6 @@ defimpl Reactor.Dsl.Build, for: Ash.Reactor.Dsl.Action do
       )
     end
   end
-
-  @doc false
-  @impl true
-  def transform(_action, dsl_state), do: {:ok, dsl_state}
 
   @doc false
   @impl true

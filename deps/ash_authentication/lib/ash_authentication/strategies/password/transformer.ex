@@ -193,7 +193,6 @@ defmodule AshAuthentication.Strategy.Password.Transformer do
       arguments: arguments,
       changes: changes,
       metadata: metadata,
-      allow_nil_input: [strategy.hashed_password_field],
       description: "Register a new user with a username and password."
     )
   end
@@ -427,7 +426,11 @@ defmodule AshAuthentication.Strategy.Password.Transformer do
     with {:ok, action} <-
            validate_action_exists(dsl_state, resettable.request_password_reset_action_name),
          :ok <- validate_identity_argument(dsl_state, action, strategy.identity_field) do
-      validate_action_has_preparation(action, Password.RequestPasswordResetPreparation)
+      if action.type == :read do
+        validate_action_has_preparation(action, Password.RequestPasswordResetPreparation)
+      else
+        :ok
+      end
     end
   end
 

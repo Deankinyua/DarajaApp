@@ -44,7 +44,9 @@ defmodule AshAuthentication.Phoenix.Components.Password.RegisterForm do
           required(:strategy) => AshAuthentication.Strategy.t(),
           optional(:overrides) => [module],
           optional(:live_action) => :sign_in | :register,
-          optional(:current_tenant) => String.t()
+          optional(:current_tenant) => String.t(),
+          optional(:context) => map(),
+          optional(:auth_routes_prefix) => String.t()
         }
 
   @doc false
@@ -53,13 +55,13 @@ defmodule AshAuthentication.Phoenix.Components.Password.RegisterForm do
   def update(assigns, socket) do
     strategy = assigns.strategy
 
-    api = Info.authentication_domain!(strategy.resource)
+    domain = Info.authentication_domain!(strategy.resource)
     subject_name = Info.authentication_subject_name!(strategy.resource)
 
     form =
       strategy.resource
       |> Form.for_action(strategy.register_action_name,
-        api: api,
+        domain: domain,
         as: subject_name |> to_string(),
         id:
           "#{subject_name}-#{Strategy.name(strategy)}-#{strategy.register_action_name}"
@@ -79,6 +81,8 @@ defmodule AshAuthentication.Phoenix.Components.Password.RegisterForm do
       |> assign_new(:inner_block, fn -> nil end)
       |> assign_new(:overrides, fn -> [AshAuthentication.Phoenix.Overrides.Default] end)
       |> assign_new(:current_tenant, fn -> nil end)
+      |> assign_new(:context, fn -> %{} end)
+      |> assign_new(:auth_routes_prefix, fn -> nil end)
 
     {:ok, socket}
   end
@@ -102,12 +106,7 @@ defmodule AshAuthentication.Phoenix.Components.Password.RegisterForm do
         phx-submit="submit"
         phx-trigger-action={@trigger_action}
         phx-target={@myself}
-        action={
-          route_helpers(@socket).auth_path(
-            @socket.endpoint,
-            {@subject_name, Strategy.name(@strategy), :register}
-          )
-        }
+        action={auth_path(@socket, @subject_name, @auth_routes_prefix, @strategy, :register)}
         method="POST"
         class={override_for(@overrides, :form_class)}
       >
@@ -161,15 +160,18 @@ defmodule AshAuthentication.Phoenix.Components.Password.RegisterForm do
              before_submit: fn changeset ->
                changeset
                |> Ash.Changeset.set_context(%{token_type: :sign_in})
+               |> Ash.Changeset.set_context(socket.assigns[:context] || %{})
                |> Ash.Changeset.set_tenant(socket.assigns.current_tenant)
              end
            ) do
         {:ok, user} ->
           validate_sign_in_token_path =
-            route_helpers(socket).auth_path(
-              socket.endpoint,
-              {socket.assigns.subject_name, Strategy.name(socket.assigns.strategy),
-               :sign_in_with_token},
+            auth_path(
+              socket,
+              socket.assigns.subject_name,
+              socket.assigns.auth_routes_prefix,
+              socket.assigns.strategy,
+              :sign_in_with_token,
               token: user.__metadata__.token
             )
 

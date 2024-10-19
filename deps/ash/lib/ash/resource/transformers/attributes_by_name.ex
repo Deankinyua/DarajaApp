@@ -20,7 +20,7 @@ defmodule Ash.Resource.Transformers.AttributesByName do
         |> Map.put(to_string(name), attr)
       end)
 
-    attribute_names = Enum.map(attributes, & &1.name)
+    attribute_names = Enum.map(attributes, & &1.name) |> MapSet.new()
 
     create_attributes_with_static_defaults =
       attributes
@@ -61,12 +61,23 @@ defmodule Ash.Resource.Transformers.AttributesByName do
           (is_function(attribute.update_default) or match?({_, _, _}, attribute.update_default))
       end)
 
+    always_selected_attribute_names =
+      Enum.filter(attributes, & &1.always_select?)
+      |> Enum.map(& &1.name)
+      |> MapSet.new()
+
+    selected_by_default_attribute_names =
+      Enum.filter(attributes, & &1.select_by_default?)
+      |> Enum.map(& &1.name)
+      |> MapSet.new()
+
     {:ok,
      persist(
        dsl_state,
        %{
          attributes_by_name: attributes_by_name,
          attribute_names: attribute_names,
+         selected_by_default_attribute_names: selected_by_default_attribute_names,
          create_attributes_with_static_defaults: create_attributes_with_static_defaults,
          create_attributes_with_non_matching_lazy_defaults:
            create_attributes_with_non_matching_lazy_defaults,
@@ -74,7 +85,8 @@ defmodule Ash.Resource.Transformers.AttributesByName do
          update_attributes_with_static_defaults: update_attributes_with_static_defaults,
          update_attributes_with_non_matching_lazy_defaults:
            update_attributes_with_non_matching_lazy_defaults,
-         update_attributes_with_matching_defaults: update_attributes_with_matching_defaults
+         update_attributes_with_matching_defaults: update_attributes_with_matching_defaults,
+         always_selected_attribute_names: always_selected_attribute_names
        }
      )}
   end

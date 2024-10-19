@@ -104,7 +104,10 @@ defmodule Finch do
 
   @type scheme_host_port() :: {scheme(), host :: String.t(), port :: :inet.port_number()}
 
-  @type request_opt() :: {:pool_timeout, timeout()} | {:receive_timeout, timeout()}
+  @type request_opt() ::
+          {:pool_timeout, timeout()}
+          | {:receive_timeout, timeout()}
+          | {:request_timeout, timeout()}
 
   @typedoc """
   Options used by request functions.
@@ -181,8 +184,8 @@ defmodule Finch do
   @impl true
   def init(config) do
     children = [
-      {DynamicSupervisor, name: config.supervisor_name, strategy: :one_for_one},
       {Registry, [keys: :duplicate, name: config.registry_name, meta: [config: config]]},
+      {DynamicSupervisor, name: config.supervisor_name, strategy: :one_for_one},
       {PoolManager, config}
     ]
 
@@ -325,6 +328,15 @@ defmodule Finch do
 
   See also `stream_while/5`.
 
+  > ### HTTP2 streaming and back-pressure {: .warning}
+  >
+  > At the moment, streaming over HTTP2 connections do not provide
+  > any back-pressure mechanism: this means the response will be
+  > sent to the client as quickly as possible. Therefore, you must
+  > not use streaming over HTTP2 for non-terminating responses or
+  > when streaming large responses which you do not intend to keep
+  > in memory.
+
   ## Stream commands
 
     * `{:status, status}` - the http response status
@@ -380,6 +392,15 @@ defmodule Finch do
     * `{:halt, acc}` to halt streaming
 
   See also `stream/5`.
+
+  > ### HTTP2 streaming and back-pressure {: .warning}
+  >
+  > At the moment, streaming over HTTP2 connections do not provide
+  > any back-pressure mechanism: this means the response will be
+  > sent to the client as quickly as possible. Therefore, you must
+  > not use streaming over HTTP2 for non-terminating responses or
+  > when streaming large responses which you do not intend to keep
+  > in memory.
 
   ## Stream commands
 
@@ -463,7 +484,7 @@ defmodule Finch do
           {:cont, {status, headers ++ value, body, trailers}}
 
         {:data, value}, {status, headers, body, trailers} ->
-          {:cont, {status, headers, [value | body], trailers}}
+          {:cont, {status, headers, [body | value], trailers}}
 
         {:trailers, value}, {status, headers, body, trailers} ->
           {:cont, {status, headers, body, trailers ++ value}}
@@ -474,7 +495,7 @@ defmodule Finch do
          %Response{
            status: status,
            headers: headers,
-           body: body |> Enum.reverse() |> IO.iodata_to_binary(),
+           body: IO.iodata_to_binary(body),
            trailers: trailers
          }}
       end

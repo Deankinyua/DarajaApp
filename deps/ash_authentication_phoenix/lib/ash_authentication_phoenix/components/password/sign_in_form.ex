@@ -37,7 +37,7 @@ defmodule AshAuthentication.Phoenix.Components.Password.SignInForm do
   alias Phoenix.LiveView.{Rendered, Socket}
 
   import AshAuthentication.Phoenix.Components.Helpers,
-    only: [route_helpers: 1]
+    only: [auth_path: 5, auth_path: 6]
 
   import PhoenixHTMLHelpers.Form
   import Slug
@@ -46,7 +46,9 @@ defmodule AshAuthentication.Phoenix.Components.Password.SignInForm do
           required(:strategy) => AshAuthentication.Strategy.t(),
           optional(:label) => String.t() | false,
           optional(:overrides) => [module],
-          optional(:current_tenant) => String.t()
+          optional(:current_tenant) => String.t(),
+          optional(:context) => map(),
+          optional(:auth_routes_prefix) => String.t()
         }
 
   @doc false
@@ -54,19 +56,23 @@ defmodule AshAuthentication.Phoenix.Components.Password.SignInForm do
   @spec update(props, Socket.t()) :: {:ok, Socket.t()}
   def update(assigns, socket) do
     strategy = assigns.strategy
-    api = Info.authentication_domain!(strategy.resource)
+    domain = Info.authentication_domain!(strategy.resource)
     subject_name = Info.authentication_subject_name!(strategy.resource)
 
     form =
       strategy.resource
       |> Form.for_action(strategy.sign_in_action_name,
-        api: api,
+        domain: domain,
         as: subject_name |> to_string(),
         id:
           "#{subject_name}-#{Strategy.name(strategy)}-#{strategy.sign_in_action_name}"
           |> slugify(),
-        tenant: socket.assigns[:current_tenant],
-        context: %{strategy: strategy, private: %{ash_authentication?: true}}
+        tenant: assigns[:current_tenant],
+        context:
+          Ash.Helpers.deep_merge_maps(assigns[:context] || %{}, %{
+            strategy: strategy,
+            private: %{ash_authentication?: true}
+          })
       )
 
     socket =
@@ -77,6 +83,8 @@ defmodule AshAuthentication.Phoenix.Components.Password.SignInForm do
       |> assign_new(:inner_block, fn -> nil end)
       |> assign_new(:overrides, fn -> [AshAuthentication.Phoenix.Overrides.Default] end)
       |> assign_new(:current_tenant, fn -> nil end)
+      |> assign_new(:context, fn -> %{} end)
+      |> assign_new(:auth_routes_prefix, fn -> nil end)
 
     {:ok, socket}
   end
@@ -94,16 +102,12 @@ defmodule AshAuthentication.Phoenix.Components.Password.SignInForm do
       <.form
         :let={form}
         for={@form}
+        id={@form.id}
         phx-change="change"
         phx-submit="submit"
         phx-trigger-action={@trigger_action}
         phx-target={@myself}
-        action={
-          route_helpers(@socket).auth_path(
-            @socket.endpoint,
-            {@subject_name, Strategy.name(@strategy), :sign_in}
-          )
-        }
+        action={auth_path(@socket, @subject_name, @auth_routes_prefix, @strategy, :sign_in)}
         method="POST"
         class={override_for(@overrides, :form_class)}
       >
@@ -118,6 +122,7 @@ defmodule AshAuthentication.Phoenix.Components.Password.SignInForm do
 
         <Password.Input.submit
           strategy={@strategy}
+          id={@form.id <> "-submit"}
           form={form}
           action={:sign_in}
           disable_text={override_for(@overrides, :disable_button_text)}
@@ -158,10 +163,12 @@ defmodule AshAuthentication.Phoenix.Components.Password.SignInForm do
            ) do
         {:ok, user} ->
           validate_sign_in_token_path =
-            route_helpers(socket).auth_path(
-              socket.endpoint,
-              {socket.assigns.subject_name, Strategy.name(socket.assigns.strategy),
-               :sign_in_with_token},
+            auth_path(
+              socket,
+              socket.assigns.subject_name,
+              socket.assigns.auth_routes_prefix,
+              socket.assigns.strategy,
+              :sign_in_with_token,
               token: user.__metadata__.token
             )
 

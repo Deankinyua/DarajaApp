@@ -97,6 +97,7 @@ defmodule Ecto.Integration.Comment do
     belongs_to :post, Ecto.Integration.Post
     belongs_to :author, Ecto.Integration.User
     has_one :post_permalink, through: [:post, :permalink]
+    has_one :author_permalink, through: [:author, :permalink]
   end
 
   def changeset(schema, params) do
@@ -123,6 +124,7 @@ defmodule Ecto.Integration.Permalink do
     belongs_to :update_post, Ecto.Integration.Post, on_replace: :update, foreign_key: :post_id, define_field: false
     belongs_to :user, Ecto.Integration.User
     has_many :post_comments_authors, through: [:post, :comments_authors]
+    has_many :user_posts, through: [:user, :posts]
   end
 
   def changeset(schema, params) do
@@ -383,5 +385,39 @@ defmodule Ecto.Integration.ArrayLogging do
   schema "array_loggings" do
     field :uuids, {:array, Ecto.Integration.TestRepo.uuid()}
     timestamps()
+  end
+end
+
+defmodule Ecto.Integration.Bitstring do
+  @moduledoc """
+  This module is used to test:
+
+    * Bitstring type
+
+  """
+  use Ecto.Integration.Schema
+
+  schema "bitstrings" do
+    field :bs,  :bitstring
+    field :bs_with_default, :bitstring
+    field :bs_with_size, :bitstring
+  end
+end
+
+if Code.ensure_loaded?(Duration) do
+  defmodule Ecto.Integration.Duration do
+    @moduledoc """
+    This module is used to test:
+      * Duration type
+    """
+    use Ecto.Integration.Schema
+
+    schema "durations" do
+      field :dur, :duration
+      field :dur_with_fields, :duration
+      field :dur_with_precision, :duration
+      field :dur_with_fields_and_precision, :duration
+      field :dur_with_default, :duration
+    end
   end
 end

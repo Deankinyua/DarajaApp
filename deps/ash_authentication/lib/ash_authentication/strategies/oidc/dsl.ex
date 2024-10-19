@@ -42,8 +42,8 @@ defmodule AshAuthentication.Strategy.Oidc.Dsl do
       ],
       client_authentication_method: [
         type:
-          {:in, [:client_secret_basic, :client_secret_post, :client_secret_jwt, :private_key_jwt]},
-        default: :client_secret_basic,
+          {:in, ["client_secret_basic", "client_secret_post", "client_secret_jwt", "private_key_jwt"]},
+        default: "client_secret_basic",
         doc: "The client authentication method to use.",
         required: false
       ],
@@ -75,14 +75,6 @@ defmodule AshAuthentication.Strategy.Oidc.Dsl do
         doc:
           "A function for generating the session nonce, `true` to automatically generate it with `AshAuthetnication.Strategy.Oidc.NonceGenerator`, or `false` to disable.",
         default: true,
-        required: false
-      ],
-      trusted_audiences: [
-        type: {:or, [nil, {:list, :string}]},
-        doc: """
-        A list of audiences which are trusted.
-        """,
-        default: nil,
         required: false
       ]
     )

@@ -68,7 +68,9 @@ defmodule Ash.DataLayer.Mnesia do
       :resource,
       :filter,
       :limit,
+      :tenant,
       :sort,
+      context: %{},
       relationships: %{},
       offset: 0,
       aggregates: [],
@@ -111,12 +113,24 @@ defmodule Ash.DataLayer.Mnesia do
   def can?(_, {:aggregate, :exists}), do: true
   def can?(resource, {:query_aggregate, kind}), do: can?(resource, {:aggregate, kind})
 
-  def can?(_, {:join, resource}) do
-    # This is to ensure that these can't join, which is necessary for testing
-    # if someone needs to use these both and *actually* needs real joins for private
-    # ets resources then we can talk about making this only happen in ash tests
-    not (Ash.DataLayer.data_layer(resource) == Ash.DataLayer.Ets &&
-           Ash.DataLayer.Ets.Info.private?(resource))
+  case Application.compile_env(:ash, :no_join_mnesia_ets) || false do
+    false ->
+      def can?(_, {:join, _resource}) do
+        # we synthesize all filters under the hood using `Ash.Filter.Runtime`
+        true
+      end
+
+    true ->
+      def can?(_, {:join, _resource}) do
+        # we synthesize all filters under the hood using `Ash.Filter.Runtime`
+        false
+      end
+
+    :dynamic ->
+      def can?(_, {:join, resource}) do
+        Ash.Resource.Info.data_layer(resource) == __MODULE__ ||
+          Application.get_env(:ash, :mnesia_ets_join?, true)
+      end
   end
 
   def can?(_, {:filter_expr, _}), do: true
@@ -190,7 +204,12 @@ defmodule Ash.DataLayer.Mnesia do
           },
           {:ok, acc} ->
             results
-            |> filter_matches(Map.get(query || %{}, :filter), domain)
+            |> filter_matches(
+              Map.get(query || %{}, :filter),
+              domain,
+              query.tenant,
+              query.context[:private][:actor]
+            )
             |> case do
               {:ok, matches} ->
                 field = field || Enum.at(Ash.Resource.Info.primary_key(resource), 0)
@@ -226,6 +245,18 @@ defmodule Ash.DataLayer.Mnesia do
 
   @doc false
   @impl true
+  def set_tenant(_resource, query, tenant) do
+    {:ok, %{query | tenant: tenant}}
+  end
+
+  @doc false
+  @impl true
+  def set_context(_resource, query, context) do
+    {:ok, %{query | context: context}}
+  end
+
+  @doc false
+  @impl true
   def run_query(
         %Query{
           domain: domain,
@@ -235,7 +266,9 @@ defmodule Ash.DataLayer.Mnesia do
           calculations: calculations,
           limit: limit,
           sort: sort,
-          aggregates: aggregates
+          aggregates: aggregates,
+          tenant: tenant,
+          context: context
         },
         _resource
       ) do
@@ -245,7 +278,8 @@ defmodule Ash.DataLayer.Mnesia do
            end),
          {:ok, records} <-
            records |> Enum.map(&elem(&1, 2)) |> Ash.DataLayer.Ets.cast_records(resource),
-         {:ok, filtered} <- filter_matches(records, filter, domain),
+         {:ok, filtered} <-
+           filter_matches(records, filter, domain, tenant, context[:private][:actor]),
          offset_records <-
            filtered |> Sort.runtime_sort(sort, domain: domain) |> Enum.drop(offset || 0),
          limited_records <- do_limit(offset_records, limit),
@@ -276,10 +310,10 @@ defmodule Ash.DataLayer.Mnesia do
   defp do_limit(records, nil), do: records
   defp do_limit(records, limit), do: Enum.take(records, limit)
 
-  defp filter_matches(records, nil, _domain), do: {:ok, records}
+  defp filter_matches(records, nil, _domain, _tenant, _), do: {:ok, records}
 
-  defp filter_matches(records, filter, domain) do
-    Ash.Filter.Runtime.filter_matches(domain, records, filter)
+  defp filter_matches(records, filter, domain, tenant, actor) do
+    Ash.Filter.Runtime.filter_matches(domain, records, filter, tenant: tenant, actor: actor)
   end
 
   @doc false

@@ -1,5 +1,5 @@
 {application,jason,
-             [{config_mtime,1719649741},
+             [{config_mtime,1729332000},
               {optional_applications,[decimal]},
               {applications,[kernel,stdlib,elixir,decimal]},
               {description,"A blazing fast JSON parser and generator in pure Elixir.\n"},
@@ -25,4 +25,4 @@
                         'Elixir.Jason.Fragment','Elixir.Jason.Helpers',
                         'Elixir.Jason.OrderedObject','Elixir.Jason.Sigil']},
               {registered,[]},
-              {vsn,"1.4.1"}]}.
+              {vsn,"1.4.4"}]}.

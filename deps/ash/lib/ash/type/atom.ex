@@ -23,13 +23,18 @@ defmodule Ash.Type.Atom do
   def constraints, do: @constraints
 
   @impl true
+  def matches_type?(v, _) do
+    is_atom(v)
+  end
+
+  @impl true
   def generator(constraints) do
     # We don't want to create tons of atoms.
     one_of = constraints[:one_of] || [:example, :atom, :value]
     StreamData.member_of(one_of)
   end
 
-  def apply_constraints(nil, _), do: :ok
+  def apply_constraints(nil, _), do: {:ok, nil}
 
   def apply_constraints(value, constraints) do
     errors =
@@ -100,4 +105,10 @@ defmodule Ash.Type.Atom do
   end
 
   def dump_to_native(_, _), do: :error
+end
+
+import Ash.Type.Comparable
+
+defcomparable left :: BitString, right :: Atom do
+  Comp.compare(left, to_string(right))
 end

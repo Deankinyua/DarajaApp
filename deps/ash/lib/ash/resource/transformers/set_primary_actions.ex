@@ -97,15 +97,18 @@ defmodule Ash.Resource.Transformers.SetPrimaryActions do
 
       unless type in [:create, :update, :read, :destroy] do
         raise Spark.Error.DslError,
-          path: [:actions, :default_actions, i],
+          path: [:actions, :defaults, i],
           message: "#{type} is not a valid action type"
       end
 
       primary? = !Enum.any?(actions, &(&1.type == type && &1.primary?))
 
+      transactions_enabled? = Ash.DataLayer.can?(:transact, dsl_state)
+
       if type == :read do
         Ash.Resource.Builder.prepend_action(dsl_state, type, type,
           primary?: primary?,
+          transaction?: false,
           pagination:
             Ash.Resource.Builder.build_pagination(
               required?: false,
@@ -120,12 +123,14 @@ defmodule Ash.Resource.Transformers.SetPrimaryActions do
             [
               require_atomic?: false,
               primary?: primary?,
-              accept: accept
+              accept: accept,
+              transaction?: transactions_enabled?
             ]
           else
             [
               primary?: primary?,
-              accept: accept
+              accept: accept,
+              transaction?: transactions_enabled?
             ]
           end
 

@@ -1,5 +1,5 @@
 {application,joken,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332002},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir,logger,crypto,jose]},
               {description,"JWT (JSON Web Token) library for Elixir.\n"},
@@ -10,4 +10,4 @@
                         'Elixir.Joken.Hooks.RequiredClaims',
                         'Elixir.Joken.Signer']},
               {registered,[]},
-              {vsn,"2.6.1"}]}.
+              {vsn,"2.6.2"}]}.

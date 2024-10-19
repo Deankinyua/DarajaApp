@@ -5,6 +5,171 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v4.2.3](https://github.com/team-alembic/ash_authentication/compare/v4.2.2...v4.2.3) (2024-10-19)
+
+
+
+
+### Bug Fixes:
+
+* respond to `--auth-strategy` option in installer
+
+* issues with OIDC strategy (#800)
+
+## [v4.2.2](https://github.com/team-alembic/ash_authentication/compare/v4.2.1...v4.2.2) (2024-10-15)
+
+
+
+
+### Improvements:
+
+* support registration via magic link (#796)
+
+* support registration via magic link
+
+* prevent account takeover hijacking by protecting against upserts against unconfirmed records
+
+* add confirmation add on when identity_field is email
+
+* implement our own identity checking instead of relying on eager_check
+
+## [v4.2.1](https://github.com/team-alembic/ash_authentication/compare/v4.2.0...v4.2.1) (2024-10-14)
+
+
+
+
+### Improvements:
+
+* update igniter
+
+## [v4.2.0](https://github.com/team-alembic/ash_authentication/compare/v4.1.0...v4.2.0) (2024-10-07)
+
+
+
+
+### Features:
+
+* add_strategy task (#794)
+
+### Improvements:
+
+* add `ash_authentication.add_strategy` task
+
+* add atomic implementations for various changes/validations
+
+* support `--auth-strategy` option when installing
+
+## [v4.1.0](https://github.com/team-alembic/ash_authentication/compare/v4.0.4...v4.1.0) (2024-10-06)
+
+
+
+
+### Features:
+
+* Add AshAuthentication igniter installer (#782)
+
+### Bug Fixes:
+
+* handle options properly for subect to user (#786)
+
+* setup options properly for ash 3.0 (#785)
+
+### Improvements:
+
+* igniter installer for user & user token resources
+
+## [v4.0.4](https://github.com/team-alembic/ash_authentication/compare/v4.0.3...v4.0.4) (2024-09-01)
+
+
+
+
+### Bug Fixes:
+
+* update types and formatter
+
+* add secret values to config
+
+* sort new fields
+
+* sort new types
+
+* properly set allow_nil for apple secrets
+
+* credo and sobelow warnings
+
+### Improvements:
+
+* add apple strategy (#750)
+
+* add apple strategy
+
+## [v4.0.3](https://github.com/team-alembic/ash_authentication/compare/v4.0.2...v4.0.3) (2024-08-22)
+
+
+
+
+### Bug Fixes:
+
+* allow overriding strategy defaults (#766)
+
+* bug where `nil` is not allowed but is returned from secret functions.
+
+* add back in accidentally removed debug errors code (#768)
+
+* set options earlier in magic link/oauth2
+
+### Improvements:
+
+* avoid warning about comparison with `nil`
+
+* set context in addition to tenant
+
+* use `no_depend_modules` for better compile dependencies
+
+* enable custom `http_adapters` (#760)
+
+## [v4.0.2](https://github.com/team-alembic/ash_authentication/compare/v4.0.1...v4.0.2) (2024-08-05)
+
+
+
+
+### Bug Fixes:
+
+* only pass the "token" parameter to reset with token action (#748)
+
+* handle case where `action.accept` is `nil`
+
+### Improvements:
+
+* validate that tokens are enabled when password resets are enabled. (#758)
+
+* compile-time check to make sure that the configured `token_resource` is an Ash.Resource (#749)
+
+* Tokens: improved compile-time validation of the token_resource option of the tokens DSL by checking that the passed value is an Ash.Resource.
+
+* Tokens: removed unnecessary stuff from the test file.
+
+* Tokens: fixed credo warning and changed some things after PR feedback
+
+## [v4.0.1](https://github.com/team-alembic/ash_authentication/compare/v4.0.0...v4.0.1) (2024-06-11)
+
+
+
+
+### Bug Fixes:
+
+* no need to `allow_nil_input` for an unaccepted field
+
+* correctly generate sign-in tokens when requested.
+
+* ensure tenant is set when revoking tokens and on changeset for updating
+
+* broken links in readme (#692)
+
+* broken links
+
+* bug in tokens required verifier.
+
 ## [4.0.0](https://github.com/team-alembic/ash_authentication/compare/v4.0.0-rc.7...4.0.0) (2024-05-10)
 ### Breaking Changes:
 

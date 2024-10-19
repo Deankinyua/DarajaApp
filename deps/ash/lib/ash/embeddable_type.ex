@@ -1,6 +1,12 @@
 defmodule Ash.EmbeddableType do
   @moduledoc false
 
+  @include_source_by_default Application.compile_env(
+                               :ash,
+                               :include_embedded_source_by_default?,
+                               true
+                             )
+
   @embedded_resource_array_constraints [
     sort: [
       type: :any,
@@ -55,6 +61,12 @@ defmodule Ash.EmbeddableType do
     read_action: [
       type: :atom,
       doc: "The read action to use when reading the embed. The primary is used by default."
+    ],
+    include_source?: [
+      type: :boolean,
+      default: @include_source_by_default,
+      doc:
+        "Whether to include the source changeset in the context. Defaults to the value of `config :ash, :include_embedded_source_by_default`, or `true`. In 4.x, the default will be `false`."
     ],
     __source__: [
       type: :any,
@@ -144,28 +156,24 @@ defmodule Ash.EmbeddableType do
   defmacro single_embed_implementation(opts) do
     # credo:disable-for-next-line Credo.Check.Refactor.LongQuoteBlocks
     quote generated: true, location: :keep, bind_quoted: [opts: opts] do
+      @include_source_by_default Application.compile_env(
+                                   :ash,
+                                   :include_embedded_source_by_default?,
+                                   true
+                                 )
       alias Ash.EmbeddableType.ShadowDomain
 
       def storage_type(_), do: :map
 
       def cast_atomic(value, constraints) do
-        if Ash.Expr.expr?(value) do
-          if Enum.empty?(Ash.Resource.Info.primary_key(__MODULE__)) ||
-               constraints[:on_update] == :replace do
-            case cast_input(value, constraints) do
-              {:ok, value} ->
-                {:atomic, value}
+        with :ok <- check_atomic(value, constraints) do
+          case cast_input(value, constraints) do
+            {:ok, value} ->
+              {:atomic, value}
 
-              {:error, error} ->
-                {:error, error}
-            end
-          else
-            {:not_atomic,
-             "Embedded attributes do not support atomic updates unless they have no primary key, or `constraints[:on_update]` is set to `:replace`."}
+            {:error, error} ->
+              {:error, error}
           end
-        else
-          {:not_atomic,
-           "Embedded attributes do not support atomic updates with expressions, only literal values."}
         end
       end
 
@@ -199,56 +207,205 @@ defmodule Ash.EmbeddableType do
 
       def cast_input_array(value, constraints) when is_list(value) do
         action =
-          constraints[:create_action] ||
-            Ash.Resource.Info.primary_action!(__MODULE__, :create).name
+          case constraints[:create_action] do
+            nil ->
+              Ash.Resource.Info.primary_action!(__MODULE__, :create)
+
+            action ->
+              Ash.Resource.Info.action(__MODULE__, action)
+          end
 
         {structs, values} =
           value
           |> Stream.with_index()
           |> Enum.split_with(&is_struct(elem(&1, 0), __MODULE__))
 
-        {context, opts} =
-          case constraints[:__source__] do
-            %Ash.Changeset{context: context} = source ->
-              {Map.put(context, :__source__, source),
-               Ash.Context.to_opts(context[:private] || %{})}
+        if Enum.empty?(values) do
+          {:ok, Enum.map(structs, &elem(&1, 0))}
+        else
+          skip_unknown_inputs = List.wrap(constraints[:skip_unknown_inputs])
 
-            _ ->
-              {%{}, []}
-          end
+          # This is a simplified, tight-loop version of resource creation
+          if Enum.empty?(action.changes) &&
+               Enum.empty?(Ash.Resource.Info.changes(__MODULE__, action.type)) &&
+               Enum.empty?(Ash.Resource.Info.validations(__MODULE__, action.type)) &&
+               Enum.empty?(Ash.Resource.Info.notifiers(__MODULE__)) &&
+               Enum.empty?(Ash.Resource.Info.relationships(__MODULE__)) do
+            has_structs? = not Enum.empty?(structs)
 
-        values
-        |> Stream.map(&elem(&1, 0))
-        |> Ash.bulk_create(
-          __MODULE__,
-          action,
-          Keyword.merge(opts,
-            domain: ShadowDomain,
-            context: context,
-            sorted?: true,
-            skip_unknown_inputs: skip_unknown_inputs(constraints),
-            return_records?: true,
-            return_errors?: true,
-            batch_size: 1_000_000_000
-          )
-        )
-        |> case do
-          %{status: :success, records: records} ->
-            Enum.reduce(structs, {:ok, records}, fn {struct, index}, {:ok, records} ->
-              {:ok, List.insert_at(records, index, struct)}
-            end)
+            attributes = Ash.Resource.Info.attributes(__MODULE__)
 
-          %{errors: errors} ->
-            errors =
-              Enum.map(errors, fn
-                %Ash.Changeset{context: %{bulk_create: %{index: index}}, errors: errors} ->
-                  Ash.Error.set_path(Ash.Error.to_ash_error(errors), index)
+            base =
+              attributes
+              |> Enum.filter(&(not is_nil(&1.default) && &1.match_other_defaults?))
+              |> Enum.reduce(struct(__MODULE__), fn attribute, acc ->
+                value =
+                  case attribute.default do
+                    {mod, func, args} -> apply(mod, func, args)
+                    function when is_function(function, 0) -> function.()
+                    value -> value
+                  end
 
-                other ->
-                  Ash.Error.to_ash_error(other)
+                Map.put(acc, attribute.name, value)
               end)
 
-            {:error, Ash.Error.to_ash_error(errors)}
+            Enum.reduce_while(values, {:ok, []}, fn {value, index}, {:ok, results} ->
+              base =
+                attributes
+                |> Enum.filter(&(not is_nil(&1.default) && !&1.match_other_defaults?))
+                |> Enum.reduce(struct(__MODULE__), fn attribute, acc ->
+                  value =
+                    case attribute.default do
+                      {mod, func, args} -> apply(mod, func, args)
+                      function when is_function(function, 0) -> function.()
+                      value -> value
+                    end
+
+                  Map.put(acc, attribute.name, value)
+                end)
+
+              Enum.reduce_while(value, {:ok, index, base}, fn {key, value}, {:ok, index, acc} ->
+                case Ash.Resource.Info.attribute(__MODULE__, key) do
+                  nil ->
+                    {:cont, {:ok, index, acc}}
+
+                  attribute ->
+                    if attribute.name in action.accept do
+                      with value <- Ash.Type.Helpers.handle_indexed_maps(attribute.type, value),
+                           {:ok, casted} <-
+                             Ash.Type.cast_input(attribute.type, value, attribute.constraints),
+                           {:ok, casted} <-
+                             Ash.Type.apply_constraints(
+                               attribute.type,
+                               casted,
+                               attribute.constraints
+                             ) do
+                        {:cont, {:ok, index, Map.put(acc, attribute.name, casted)}}
+                      else
+                        {:error, error} ->
+                          error =
+                            Ash.Error.set_path(Ash.Error.to_ash_error(error), attribute.name)
+
+                          {:halt, {:error, index, error}}
+                      end
+                    else
+                      if Enum.any?(skip_unknown_inputs, &(&1 == :* || &1 == key)) do
+                        {:cont, {:ok, index, acc}}
+                      else
+                        {:halt,
+                         {:error, index,
+                          Ash.Error.Invalid.NoSuchInput.exception(
+                            resource: __MODULE__,
+                            action: action.name,
+                            input: key,
+                            inputs: Ash.Resource.Info.action_inputs(__MODULE__, action.name)
+                          )}}
+                      end
+                    end
+                end
+              end)
+              |> case do
+                {:ok, index, result} ->
+                  attributes
+                  |> Stream.filter(
+                    &(&1.name in action.accept && &1.name not in action.allow_nil_input &&
+                        (&1.allow_nil? == false || &1.name in action.require_attributes))
+                  )
+                  |> Enum.reduce_while({:ok, result}, fn attr, {:ok, result} ->
+                    if is_nil(Map.get(result, attr.name)) do
+                      {:halt,
+                       {:error,
+                        Ash.Error.Changes.Required.exception(
+                          resource: __MODULE__,
+                          field: attr.name,
+                          type: :attribute
+                        )}}
+                    else
+                      {:cont, {:ok, result}}
+                    end
+                  end)
+                  |> case do
+                    {:ok, result} ->
+                      if has_structs? do
+                        {:cont, {:ok, [{result, index} | results]}}
+                      else
+                        {:cont, {:ok, [result | results]}}
+                      end
+
+                    {:error, error} ->
+                      {:halt, {:error, index, error}}
+                  end
+
+                {:error, index, error} ->
+                  {:halt, {:error, index, error}}
+              end
+            end)
+            |> case do
+              {:ok, values} ->
+                if has_structs? do
+                  values =
+                    values
+                    |> Enum.sort_by(&elem(&1, 1))
+                    |> Enum.map(&elem(&1, 0))
+
+                  Enum.reduce(structs, {:ok, values}, fn {struct, index}, {:ok, values} ->
+                    {:ok, List.insert_at(values, index, struct)}
+                  end)
+                else
+                  {:ok, Enum.reverse(values)}
+                end
+
+              {:error, index, error} ->
+                {:error, Ash.Error.set_path(Ash.Error.to_ash_error(error), index)}
+            end
+          else
+            {context, opts} =
+              case constraints[:__source__] do
+                %Ash.Changeset{context: context} = source ->
+                  {Map.put(context, :__source__, source),
+                   Ash.Context.to_opts(context[:private] || %{})}
+
+                _ ->
+                  {%{}, []}
+              end
+
+            values
+            |> Stream.map(&elem(&1, 0))
+            |> Ash.bulk_create(
+              __MODULE__,
+              action.name,
+              Keyword.merge(opts,
+                domain: ShadowDomain,
+                context: context,
+                sorted?: true,
+                skip_unknown_inputs: skip_unknown_inputs(constraints),
+                return_records?: true,
+                return_errors?: true,
+                batch_size: 1_000_000_000
+              )
+            )
+            |> case do
+              %{status: :success, records: records} when structs == [] ->
+                {:ok, records}
+
+              %{status: :success, records: records} ->
+                Enum.reduce(structs, {:ok, records}, fn {struct, index}, {:ok, records} ->
+                  {:ok, List.insert_at(records, index, struct)}
+                end)
+
+              %{errors: errors} ->
+                errors =
+                  Enum.map(errors, fn
+                    %Ash.Changeset{context: %{bulk_create: %{index: index}}, errors: errors} ->
+                      Ash.Error.set_path(Ash.Error.to_ash_error(errors), index)
+
+                    other ->
+                      Ash.Error.to_ash_error(other)
+                  end)
+
+                {:error, Ash.Error.to_ash_error(errors)}
+            end
+          end
         end
       end
 
@@ -364,6 +521,7 @@ defmodule Ash.EmbeddableType do
           :destroy_action,
           :update_action,
           :domain,
+          :skip_unknown_inputs,
           :__source__
         ])
         |> Keyword.put(:on_update,
@@ -448,6 +606,8 @@ defmodule Ash.EmbeddableType do
         |> Enum.concat(
           Enum.flat_map(Ash.Resource.Info.primary_key(__MODULE__), &[&1, to_string(&1)])
         )
+        |> Enum.concat(List.wrap(constraints[:skip_unknown_inputs]))
+        |> Enum.concat(List.wrap(constraints[:items][:skip_unknown_inputs]))
       end
 
       def prepare_change(old_value, "", constraints) do
@@ -539,23 +699,76 @@ defmodule Ash.EmbeddableType do
       alias Ash.EmbeddableType.ShadowDomain
 
       def cast_atomic_array(value, constraints) do
-        if Ash.Expr.expr?(value) do
-          if Enum.empty?(Ash.Resource.Info.primary_key(__MODULE__)) ||
-               constraints[:on_update] == :replace do
-            case cast_input_array(value, constraints) do
-              {:ok, value} ->
-                {:atomic, value}
+        with :ok <- check_atomic(value, constraints) do
+          case cast_input_array(value, constraints) do
+            {:ok, value} ->
+              {:atomic, value}
 
-              {:error, error} ->
-                {:error, error}
-            end
-          else
-            {:not_atomic,
-             "Embedded attributes do not support atomic updates unless they have no primary key, or `constraints[:on_update]` is set to `:replace`."}
+            {:error, error} ->
+              {:error, error}
           end
-        else
+        end
+      end
+
+      def check_atomic(value, constraints) do
+        if Ash.Expr.expr?(value) do
           {:not_atomic,
            "Embedded attributes do not support atomic updates with expressions, only literal values."}
+        else
+          if Enum.empty?(Ash.Resource.Info.primary_key(__MODULE__)) ||
+               constraints[:on_update] == :replace ||
+               update_action_allows_atomics?(constraints) do
+            :ok
+          else
+            {:not_atomic,
+             """
+             Embedded attributes do not support atomic updates unless they have no primary key, or `constraints[:on_update]` is set to `:replace`, or the update action accepts all public attributes and has no changes.
+             """}
+          end
+        end
+      end
+
+      defp update_action_allows_atomics?(constraints) do
+        action =
+          case constraints[:update_action] do
+            nil -> Ash.Resource.Info.primary_action!(__MODULE__, :update)
+            action -> Ash.Resource.Info.action(__MODULE__, action)
+          end
+
+        if Enum.empty?(action.changes) &&
+             Enum.empty?(Ash.Resource.Info.changes(__MODULE__, action.type)) &&
+             Enum.empty?(Ash.Resource.Info.validations(__MODULE__, action.type)) &&
+             Enum.empty?(Ash.Resource.Info.notifiers(__MODULE__)) &&
+             Enum.empty?(Ash.Resource.Info.relationships(__MODULE__)) do
+          __MODULE__
+          |> Ash.Resource.Info.public_attributes()
+          |> Enum.all?(&(&1.name in action.accept))
+          |> if do
+            :ok
+          else
+            :error
+          end
+        else
+          :error
+        end
+        |> case do
+          :ok ->
+            :ok
+
+          :error ->
+            {:not_atomic,
+             """
+             Embedded attributes do not support atomic updates unless one of the following is true:
+
+             - it has no primary key
+             - `constraints[:on_update]` is set to `:replace`
+
+             Or all of the following are true:
+
+             - the update action accepts all public attributes and has no changes
+             - there are no changes or validations on the action
+             - there are no notifiers, or relationships defined on the resource             \"""}
+             """}
         end
       end
 
@@ -651,8 +864,21 @@ defmodule Ash.EmbeddableType do
               end
             end
 
-          keys ->
-            {:error, message: "items must be unique on keys %{keys}", keys: Enum.join(keys, ",")}
+          %{type: type, keys: keys, nils_distinct?: nils_distinct?} ->
+            type =
+              case type do
+                :primary_key -> "primary key"
+                other -> to_string(other)
+              end
+
+            nils_distinct? =
+              if nils_distinct? do
+                " with `nil` values considered distinct"
+              end
+
+            {:error,
+             message: "items must be unique on #{type} with keys %{keys}#{nils_distinct?}",
+             keys: Enum.join(keys, ",")}
         end
       end
 
@@ -731,19 +957,14 @@ defmodule Ash.EmbeddableType do
       def handle_change_array(old_values, new_values, constraints) do
         pkey_fields = Ash.Resource.Info.primary_key(__MODULE__)
 
-        destroy_action =
-          constraints[:destroy_action] ||
-            Ash.Resource.Info.primary_action!(__MODULE__, :destroy).name
-
         old_values
         |> List.wrap()
-        |> Enum.with_index()
         |> then(fn list ->
           if Enum.empty?(pkey_fields) do
             list
           else
             list
-            |> Enum.reject(fn {old_value, _} ->
+            |> Enum.reject(fn old_value ->
               pkey = Map.take(old_value, pkey_fields)
 
               Enum.any?(new_values, fn new_value ->
@@ -752,38 +973,54 @@ defmodule Ash.EmbeddableType do
             end)
           end
         end)
-        |> Enum.reduce_while(:ok, fn {record, index}, :ok ->
-          record
-          |> Ash.Changeset.new()
-          |> Ash.EmbeddableType.copy_source(constraints)
-          |> Ash.Changeset.for_destroy(destroy_action, %{}, domain: ShadowDomain)
-          |> Ash.destroy()
-          |> case do
-            :ok ->
-              {:cont, :ok}
-
-            {:error, error} ->
-              errors =
-                error
-                |> Ash.EmbeddableType.handle_errors()
-                |> Enum.map(fn keyword ->
-                  Keyword.put(keyword, :index, index)
-                end)
-
-              {:halt, {:error, errors}}
-          end
-        end)
         |> case do
-          :ok ->
+          [] ->
             {:ok, new_values}
 
-          {:error, error} ->
-            {:error, error}
+          to_destroy ->
+            destroy_action =
+              constraints[:destroy_action] ||
+                Ash.Resource.Info.primary_action!(__MODULE__, :destroy).name
+
+            {context, opts} =
+              case constraints[:__source__] do
+                %Ash.Changeset{context: context} = source ->
+                  {Map.put(context, :__source__, source),
+                   Ash.Context.to_opts(context[:private] || %{})}
+
+                _ ->
+                  {%{}, []}
+              end
+
+            case Ash.bulk_destroy(
+                   to_destroy,
+                   destroy_action,
+                   %{},
+                   Keyword.merge(opts,
+                     domain: ShadowDomain,
+                     context: context,
+                     sorted?: true,
+                     skip_unknown_inputs: skip_unknown_inputs(constraints),
+                     return_records?: true,
+                     return_errors?: true,
+                     batch_size: 1_000_000_000
+                   )
+                 ) do
+              %Ash.BulkResult{status: :success} ->
+                {:ok, new_values}
+
+              %Ash.BulkResult{errors: errors} ->
+                {:error, Ash.EmbeddableType.handle_errors(errors)}
+            end
         end
       end
 
       def include_source(constraints, changeset) do
-        Keyword.put(constraints, :__source__, changeset)
+        if Keyword.get(constraints, :include_source?, @include_source_by_default) do
+          Keyword.put(constraints, :__source__, changeset)
+        else
+          constraints
+        end
       end
 
       def prepare_change_array(_old_values, nil, _constraints) do

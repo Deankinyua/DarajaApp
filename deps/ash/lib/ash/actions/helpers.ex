@@ -50,7 +50,7 @@ defmodule Ash.Actions.Helpers do
     """
   end
 
-  def validate_calculation_load!(other, _), do: other
+  def validate_calculation_load!(other, _), do: List.wrap(other)
 
   defp set_context(%Ash.Changeset{} = changeset, context),
     do: Ash.Changeset.set_context(changeset, context)
@@ -61,13 +61,33 @@ defmodule Ash.Actions.Helpers do
   defp set_context(%Ash.ActionInput{} = action_input, context),
     do: Ash.ActionInput.set_context(action_input, context)
 
+  defp set_skip_unknown_opts(opts, %{action: %{skip_unknown_inputs: skip_unknown_inputs}}) do
+    Keyword.update(
+      opts,
+      :skip_unknown_inputs,
+      skip_unknown_inputs,
+      &Enum.concat(List.wrap(&1), skip_unknown_inputs)
+    )
+  end
+
+  defp set_skip_unknown_opts(opts, _query_or_changeset) do
+    opts
+  end
+
+  def maybe_embedded_domain(resource) do
+    if Ash.Resource.Info.embedded?(resource) do
+      Ash.EmbeddableType.ShadowDomain
+    end
+  end
+
   def set_context_and_get_opts(domain, query_or_changeset, opts) do
     opts = transform_tenant(opts)
+    opts = set_skip_unknown_opts(opts, query_or_changeset)
     query_or_changeset = set_context(query_or_changeset, opts[:context] || %{})
 
     domain =
       Ash.Resource.Info.domain(query_or_changeset.resource) || opts[:domain] || domain ||
-        query_or_changeset.domain
+        query_or_changeset.domain || maybe_embedded_domain(query_or_changeset.resource)
 
     opts =
       case query_or_changeset.context do
@@ -95,7 +115,8 @@ defmodule Ash.Actions.Helpers do
           private: %{
             authorize?: authorize?
           }
-        } ->
+        }
+        when not is_nil(authorize?) ->
           Keyword.put_new(opts, :authorize?, authorize?)
 
         _ ->
@@ -128,30 +149,25 @@ defmodule Ash.Actions.Helpers do
     opts
     |> add_actor(query_or_changeset, domain)
     |> add_authorize?(query_or_changeset, domain)
-    |> add_tenant()
     |> add_tracer()
   end
 
   def add_context(query_or_changeset, opts) do
-    context = Process.get(:ash_context, %{}) || %{}
     private_context = Map.new(Keyword.take(opts, [:actor, :authorize?, :tracer]))
 
     case query_or_changeset do
       %Ash.ActionInput{} ->
         query_or_changeset
-        |> Ash.ActionInput.set_context(context)
         |> Ash.ActionInput.set_context(%{private: private_context})
         |> Ash.ActionInput.set_tenant(query_or_changeset.tenant || opts[:tenant])
 
       %Ash.Query{} ->
         query_or_changeset
-        |> Ash.Query.set_context(context)
         |> Ash.Query.set_context(%{private: private_context})
         |> Ash.Query.set_tenant(query_or_changeset.tenant || opts[:tenant])
 
       %Ash.Changeset{} ->
         query_or_changeset
-        |> Ash.Changeset.set_context(context)
         |> Ash.Changeset.set_context(%{
           private: private_context
         })
@@ -170,19 +186,6 @@ defmodule Ash.Actions.Helpers do
   end
 
   defp add_actor(opts, query_or_changeset, domain) do
-    opts =
-      if Keyword.has_key?(opts, :actor) do
-        opts
-      else
-        case Process.get(:ash_actor) do
-          {:actor, value} ->
-            Keyword.put(opts, :actor, value)
-
-          _ ->
-            opts
-        end
-      end
-
     if !domain do
       raise Ash.Error.Framework.AssumptionFailed,
         message: "Could not determine domain for action."
@@ -206,19 +209,6 @@ defmodule Ash.Actions.Helpers do
   defp skip_requiring_actor?(_), do: false
 
   defp add_authorize?(opts, query_or_changeset, domain) do
-    opts =
-      if Keyword.has_key?(opts, :authorize?) do
-        opts
-      else
-        case Process.get(:ash_authorize?) do
-          {:authorize?, value} ->
-            Keyword.put(opts, :authorize?, value)
-
-          _ ->
-            opts
-        end
-      end
-
     if !domain do
       raise Ash.Error.Framework.AssumptionFailed,
         message: "Could not determine domain for action."
@@ -248,30 +238,7 @@ defmodule Ash.Actions.Helpers do
     end
   end
 
-  defp add_tenant(opts) do
-    if Keyword.has_key?(opts, :tenant) do
-      opts
-    else
-      case Process.get(:ash_tenant) do
-        {:tenant, value} ->
-          Keyword.put(opts, :tenant, value)
-
-        _ ->
-          opts
-      end
-    end
-  end
-
   defp add_tracer(opts) do
-    opts =
-      case Process.get(:ash_tracer) do
-        {:tracer, value} ->
-          do_add_tracer(opts, value)
-
-        _ ->
-          opts
-      end
-
     case Application.get_env(:ash, :tracer) do
       nil ->
         opts
@@ -346,7 +313,6 @@ defmodule Ash.Actions.Helpers do
       for: Ash.Resource.Info.notifiers(changeset.resource) ++ changeset.action.notifiers,
       data: result,
       changeset: changeset,
-      from: self(),
       metadata: opts[:notification_metadata] || %{}
     }
   end
@@ -426,6 +392,17 @@ defmodule Ash.Actions.Helpers do
   end
 
   def process_errors(changeset, error), do: process_errors(changeset, [error])
+
+  def templated_opts({:templated, opts}, _actor, _arguments, _context), do: opts
+
+  def templated_opts(opts, actor, arguments, context) do
+    Ash.Expr.fill_template(
+      opts,
+      actor,
+      arguments,
+      context
+    )
+  end
 
   def load_runtime_types({:ok, results}, query, attributes?) do
     load_runtime_types(results, query, attributes?)
@@ -801,48 +778,42 @@ defmodule Ash.Actions.Helpers do
     result
   end
 
-  def select(%resource{} = result, %{resource: resource, select: select}) do
-    resource
-    |> Ash.Resource.Info.attributes()
-    |> Enum.flat_map(fn attribute ->
-      if attribute.always_select? || attribute.primary_key? || attribute.name in select do
-        []
-      else
-        [attribute.name]
-      end
-    end)
-    |> Enum.reduce(result, fn key, record ->
-      record
-      |> Map.put(key, %Ash.NotLoaded{field: key, type: :attribute})
-    end)
+  def select(%resource{} = result, %{select: select, resource: resource} = query) do
+    select_mask = select_mask(query)
+
+    result
+    |> Map.merge(select_mask)
     |> Ash.Resource.put_metadata(:selected, select)
   end
 
   def select(:ok, _query), do: :ok
 
-  def select(results, query) do
+  def select(results, %{select: select} = query) do
     if Enumerable.impl_for(results) do
-      Enum.map(results, &select(&1, query))
+      select_mask = select_mask(query)
+
+      Enum.map(results, fn result ->
+        result
+        |> Map.merge(select_mask)
+        |> Ash.Resource.put_metadata(:selected, select)
+      end)
     else
       results
     end
   end
 
-  def attributes_to_select(%{select: nil, resource: resource}) do
+  defp select_mask(%{select: select, resource: resource}) do
     resource
     |> Ash.Resource.Info.attributes()
-    |> Enum.map(& &1.name)
-  end
-
-  def attributes_to_select(%{select: select, resource: resource}) do
-    resource
-    |> Ash.Resource.Info.attributes()
-    |> Enum.flat_map(fn attribute ->
-      if attribute.always_select? || attribute.primary_key? || attribute.name in select do
-        [attribute.name]
+    |> Enum.reject(fn attribute ->
+      if is_nil(select) do
+        attribute.select_by_default?
       else
-        []
+        attribute.always_select? || attribute.primary_key? || attribute.name in select
       end
+    end)
+    |> Map.new(fn attribute ->
+      {attribute.name, %Ash.NotLoaded{field: attribute.name, type: :attribute}}
     end)
   end
 end

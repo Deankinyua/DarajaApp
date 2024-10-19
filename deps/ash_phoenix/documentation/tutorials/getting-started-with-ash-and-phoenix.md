@@ -15,7 +15,7 @@ In this guide we will:
 
 - [Install Elixir](https://elixir-lang.org/install.html)
 - [Phoenix - Up and Running Guide](https://hexdocs.pm/phoenix/up_and_running.html)
-- [Philosophy Guide](https://hexdocs.pm/ash/philosophy.html)
+- [Design Principles](https://hexdocs.pm/ash/design-principles.html)
 
 ## Requirements
 
@@ -64,6 +64,7 @@ We now need to add Ash, AshPhoenix and AshPostgres to our Phoenix project. We ne
       {:phoenix, "~> x.x"},
       # ...
       {:ash, "~> x.x"},
+      {:picosat_elixir, "~> x.x"},
       {:ash_postgres, "~> x.x"},
       {:ash_phoenix, "~> x.x"}
     ]
@@ -85,6 +86,10 @@ Now in the terminal install these new dependencies.
 ```bash
 $ mix deps.get
 ```
+
+> ### Picosat installation issues? {: .info}
+>
+> If you have trouble compiling `picosat_elixir`, then replace `{:picosat_elixir, "~> 0.2"}` with `{:simple_sat, "~> 0.1"}` to use a simpler (but mildly slower) solver. You can always switch back to `picosat_elixir` later once you're done with the tutorial.
 
 ### Use `AshPostgres.Repo`
 
@@ -439,20 +444,28 @@ defmodule MyAshPhoenixAppWeb.PostsLive do
     {:noreply, assign(socket, posts: posts, post_selector: post_selector(posts))}
   end
 
-  def handle_event("create_post", %{"form" => %{"title" => title}}, socket) do
-    Blog.create_post(%{title: title})
-    posts = Blog.list_posts!()
+  def handle_event("create_post", %{"form" => form_params}, socket) do
+    case AshPhoenix.Form.submit(socket.assigns.create_form, params: form_params) do
+      {:ok, _post} ->
+        posts = Blog.list_posts!()
 
-    {:noreply, assign(socket, posts: posts, post_selector: post_selector(posts))}
+        {:noreply, assign(socket, posts: posts, post_selector: post_selector(posts))}
+
+      {:error, create_form} ->
+        {:noreply, assign(socket, create_form: create_form)}
+    end
   end
 
   def handle_event("update_post", %{"form" => form_params}, socket) do
-    %{"post_id" => post_id, "content" => content} = form_params
+    case AshPhoenix.Form.submit(socket.assigns.update_form, params: form_params) do
+      {:ok, _post} ->
+        posts = Blog.list_posts!()
 
-    post_id |> Blog.get_post!() |> Blog.update_post!(%{content: content})
-    posts = Blog.list_posts!()
+        {:noreply, assign(socket, posts: posts, post_selector: post_selector(posts))}
 
-    {:noreply, assign(socket, posts: posts, post_selector: post_selector(posts))}
+      {:error, update_form} ->
+        {:noreply, assign(socket, update_form: update_form)}
+    end
   end
 
   defp post_selector(posts) do

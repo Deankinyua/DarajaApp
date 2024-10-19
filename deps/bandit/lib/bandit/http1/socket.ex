@@ -206,6 +206,7 @@ defmodule Bandit.HTTP1.Socket do
 
     def read_data(%@for{} = socket, _opts), do: {:ok, <<>>, socket}
 
+    @dialyzer {:no_improper_lists, do_read_content_length_data!: 4}
     defp do_read_content_length_data!(socket, buffer, bytes_remaining, opts) do
       max_desired_bytes = Keyword.get(opts, :length, 8_000_000)
 
@@ -235,6 +236,7 @@ defmodule Bandit.HTTP1.Socket do
       end
     end
 
+    @dialyzer {:no_improper_lists, do_read_chunked_data!: 5}
     defp do_read_chunked_data!(socket, buffer, body, read_size, read_timeout) do
       case :binary.split(buffer, "\r\n") do
         ["0", _] ->
@@ -313,7 +315,7 @@ defmodule Bandit.HTTP1.Socket do
           end
 
         {:error, :timeout} ->
-          already_read
+          request_error!("Body read timeout", :request_timeout)
 
         {:error, reason} ->
           request_error!(reason)
@@ -332,15 +334,15 @@ defmodule Bandit.HTTP1.Socket do
 
         :chunk_encoded ->
           headers = [{"transfer-encoding", "chunked"} | headers]
-          _ = ThousandIsland.Socket.send(socket.socket, [resp_line | encode_headers(headers)])
+          send!(socket.socket, [resp_line | encode_headers(headers)])
           %{socket | write_state: :chunking}
 
         :no_body ->
-          _ = ThousandIsland.Socket.send(socket.socket, [resp_line | encode_headers(headers)])
+          send!(socket.socket, [resp_line | encode_headers(headers)])
           %{socket | write_state: :sent}
 
         :inform ->
-          _ = ThousandIsland.Socket.send(socket.socket, [resp_line | encode_headers(headers)])
+          send!(socket.socket, [resp_line | encode_headers(headers)])
           %{socket | write_state: :unsent}
       end
     end
@@ -352,23 +354,38 @@ defmodule Bandit.HTTP1.Socket do
     end
 
     def send_data(%@for{write_state: :writing} = socket, data, end_request) do
-      _ = ThousandIsland.Socket.send(socket.socket, [socket.send_buffer | data])
+      send!(socket.socket, [socket.send_buffer | data])
       write_state = if end_request, do: :sent, else: :writing
       %{socket | write_state: write_state, send_buffer: []}
     end
 
     def send_data(%@for{write_state: :chunking} = socket, data, end_request) do
       byte_size = data |> IO.iodata_length()
-      payload = [Integer.to_string(byte_size, 16), "\r\n", data, "\r\n"]
-      _ = ThousandIsland.Socket.send(socket.socket, payload)
+      send!(socket.socket, [Integer.to_string(byte_size, 16), "\r\n", data, "\r\n"])
       write_state = if end_request, do: :sent, else: :chunking
       %{socket | write_state: write_state}
     end
 
     def sendfile(%@for{write_state: :writing} = socket, path, offset, length) do
-      _ = ThousandIsland.Socket.send(socket.socket, socket.send_buffer)
-      _ = ThousandIsland.Socket.sendfile(socket.socket, path, offset, length)
-      %{socket | write_state: :sent}
+      send!(socket.socket, socket.send_buffer)
+
+      case ThousandIsland.Socket.sendfile(socket.socket, path, offset, length) do
+        {:ok, _bytes_written} -> %{socket | write_state: :sent}
+        {:error, reason} -> request_error!(reason)
+      end
+    end
+
+    @spec send!(ThousandIsland.Socket.t(), iolist()) :: :ok | no_return()
+    defp send!(socket, payload) do
+      case ThousandIsland.Socket.send(socket, payload) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          # Prevent error handlers from possibly trying to send again
+          send(self(), {:plug_conn, :sent})
+          request_error!(reason)
+      end
     end
 
     def ensure_completed(%@for{read_state: :read} = socket), do: socket
@@ -388,7 +405,12 @@ defmodule Bandit.HTTP1.Socket do
       after
         0 ->
           status = error |> Plug.Exception.status() |> Plug.Conn.Status.code()
-          send_headers(socket, status, [], :no_body)
+
+          try do
+            send_headers(socket, status, [], :no_body)
+          rescue
+            Bandit.HTTPError -> :ok
+          end
       end
     end
 

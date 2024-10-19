@@ -62,8 +62,9 @@ defmodule Ecto.Adapters.Postgres do
     * `:maintenance_database` - Specifies the name of the database to connect to when
       creating or dropping the database. Defaults to `"postgres"`
     * `:pool` - The connection pool module, may be set to `Ecto.Adapters.SQL.Sandbox`
-    * `:ssl` - Set to true if ssl should be used (default: false)
-    * `:ssl_opts` - A list of ssl options, see Erlang's `ssl` docs
+    * `:ssl` - Accepts a list of options to enable TLS for the client connection,
+      or `false` to disable it. See the documentation for [Erlang's `ssl` module](`e:ssl:ssl`)
+      for a list of options (default: false)
     * `:parameters` - Keyword list of connection parameters
     * `:connect_timeout` - The timeout for establishing new connections (default: 5000)
     * `:prepare` - How to prepare queries, either `:named` to use named queries
@@ -175,8 +176,7 @@ defmodule Ecto.Adapters.Postgres do
 
   @impl true
   def storage_up(opts) do
-    database =
-      Keyword.fetch!(opts, :database) || raise ":database is nil in repository configuration"
+    database = Keyword.fetch!(opts, :database)
 
     encoding = if opts[:encoding] == :unspecified, do: nil, else: opts[:encoding] || "UTF8"
     maintenance_database = Keyword.get(opts, :maintenance_database, @default_maintenance_database)
@@ -215,8 +215,7 @@ defmodule Ecto.Adapters.Postgres do
 
   @impl true
   def storage_down(opts) do
-    database =
-      Keyword.fetch!(opts, :database) || raise ":database is nil in repository configuration"
+    database = Keyword.fetch!(opts, :database)
 
     command =
       "DROP DATABASE \"#{database}\""
@@ -239,8 +238,7 @@ defmodule Ecto.Adapters.Postgres do
 
   @impl Ecto.Adapter.Storage
   def storage_status(opts) do
-    database =
-      Keyword.fetch!(opts, :database) || raise ":database is nil in repository configuration"
+    database = Keyword.fetch!(opts, :database)
 
     maintenance_database = Keyword.get(opts, :maintenance_database, @default_maintenance_database)
     opts = Keyword.put(opts, :database, maintenance_database)

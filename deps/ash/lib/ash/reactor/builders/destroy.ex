@@ -16,6 +16,8 @@ defimpl Reactor.Dsl.Build, for: Ash.Reactor.Dsl.Destroy do
         arguments
         |> maybe_append(destroy.actor)
         |> maybe_append(destroy.tenant)
+        |> maybe_append(destroy.load)
+        |> maybe_append(destroy.context)
         |> Enum.concat(destroy.wait_for)
         |> Enum.concat([%Argument{name: :initial, source: destroy.initial}])
 
@@ -47,10 +49,6 @@ defimpl Reactor.Dsl.Build, for: Ash.Reactor.Dsl.Destroy do
       )
     end
   end
-
-  @doc false
-  @impl true
-  def transform(_destroy, dsl_state), do: {:ok, dsl_state}
 
   @doc false
   @impl true

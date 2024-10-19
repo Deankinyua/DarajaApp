@@ -1,5 +1,5 @@
 {application,nimble_pool,
-             [{config_mtime,1719649741},
+             [{config_mtime,1729332001},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir,logger]},
               {description,"A tiny resource-pool implementation"},

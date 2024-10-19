@@ -48,6 +48,12 @@ defmodule Ecto.Adapters.SQL.Sandbox do
           :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
         end
 
+        setup tags do
+          pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Repo, shared: not tags[:async])
+          on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+          :ok
+        end
+
         test "create post" do
           # Use the repository as usual
           assert %Post{} = Repo.insert!(%Post{})
@@ -203,12 +209,35 @@ defmodule Ecto.Adapters.SQL.Sandbox do
       test "queries periodically" do
         {:ok, pid} = PeriodicServer.start_link()
         Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-        # more tests
+        # assertions
       end
 
   Because the server is querying the database from time to time, there is
   a chance that, when the test exits, the periodic process may be querying
   the database, regardless of test success or failure.
+
+  To address this, you can tell ExUnit to manage your processes:
+
+      test "queries periodically" do
+        pid = start_supervised!(PeriodicServer)
+        Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
+        # assertions
+      end
+
+  By using `start_supervised!/1`, ExUnit guarantees the process finishes
+  before your test (the connection owner).
+
+  In some situations, however, the dynamic processes are directly started
+  inside a `DynamicSupervisor` or a `Task.Supervisor`. You can guarantee
+  proper termination in such scenarios by adding an `on_exit` callback
+  that waits until all supervised children terminate:
+
+      on_exit(fn ->
+        for {_, pid, _, _} <- DynamicSupervisor.which_children(MyApp.DynamicSupervisor) do
+          ref = Process.monitor(pid)
+          assert_receive {:DOWN, ^ref, _, _, _}, :infinity
+        end
+      end)
 
   ### "owner timed out because it owned the connection for longer than Nms"
 
@@ -407,6 +436,7 @@ defmodule Ecto.Adapters.SQL.Sandbox do
   The remaining options are passed to `checkout/2`.
   """
   @doc since: "3.4.4"
+  @spec start_owner!(Ecto.Repo.t() | pid(), keyword()) :: pid()
   def start_owner!(repo, opts \\ []) do
     parent = self()
 
@@ -460,7 +490,15 @@ defmodule Ecto.Adapters.SQL.Sandbox do
   connections are checked in. Therefore, it is recommend to set those
   modes before your test suite starts, as otherwise you will check in
   connections being used in any other test running concurrently.
+
+  If successful, returns `:ok` (this is always successful for `:auto`
+  and `:manual` modes). It may return `:not_owner` or `:not_found`
+  when setting `{:shared, pid}` and the given `pid` does not own any
+  connection for the repo. May return `:already_shared` if another
+  process set the ownership mode to `{:shared, _}` and is still alive.
   """
+  @spec mode(Ecto.Repo.t() | pid(), :auto | :manual | {:shared, pid()}) ::
+          :ok | :already_shared | :now_owner | :not_found
   def mode(repo, mode)
       when (is_atom(repo) or is_pid(repo)) and mode in [:auto, :manual]
       when (is_atom(repo) or is_pid(repo)) and elem(mode, 0) == :shared and is_pid(elem(mode, 1)) do
@@ -474,6 +512,9 @@ defmodule Ecto.Adapters.SQL.Sandbox do
   The process calling `checkout/2` will own the connection
   until it calls `checkin/2` or until it crashes in which case
   the connection will be automatically reclaimed by the pool.
+
+  If successful, returns `:ok`. If the caller already has a
+  connection, it returns `{:already, :owner | :allowed}`.
 
   ## Options
 
@@ -490,6 +531,7 @@ defmodule Ecto.Adapters.SQL.Sandbox do
       be bumped whenever necessary.
 
   """
+  @spec checkout(Ecto.Repo.t() | pid(), keyword()) :: :ok | {:already, :owner | :allowed}
   def checkout(repo, opts \\ []) when is_atom(repo) or is_pid(repo) do
     %{pid: pool, opts: pool_opts} = lookup_meta!(repo)
 
@@ -535,6 +577,7 @@ defmodule Ecto.Adapters.SQL.Sandbox do
   @doc """
   Checks in the connection back into the sandbox pool.
   """
+  @spec checkin(Ecto.Repo.t() | pid()) :: :ok | :not_owner | :not_found
   def checkin(repo, _opts \\ []) when is_atom(repo) or is_pid(repo) do
     %{pid: pool, opts: opts} = lookup_meta!(repo)
     DBConnection.Ownership.ownership_checkin(pool, opts)
@@ -544,7 +587,13 @@ defmodule Ecto.Adapters.SQL.Sandbox do
   Allows the `allow` process to use the same connection as `parent`.
 
   `allow` may be a PID or a locally registered name.
+
+  If the allowance is successful, this function returns `:ok`. If `allow` is already an
+  owner or already allowed, it returns `{:already, :owner | :allowed}`. If `parent` has not
+  checked out a connection from the repo, it returns `:not_found`.
   """
+  @spec allow(Ecto.Repo.t() | pid(), pid(), term()) ::
+          :ok | {:already, :owner | :allowed} | :not_found
   def allow(repo, parent, allow, _opts \\ []) when is_atom(repo) or is_pid(repo) do
     case GenServer.whereis(allow) do
       pid when is_pid(pid) ->
@@ -562,6 +611,7 @@ defmodule Ecto.Adapters.SQL.Sandbox do
   @doc """
   Runs a function outside of the sandbox.
   """
+  @spec unboxed_run(Ecto.Repo.t() | pid(), (-> result)) :: result when result: var
   def unboxed_run(repo, fun) when is_atom(repo) or is_pid(repo) do
     checkin(repo)
     checkout(repo, sandbox: false)

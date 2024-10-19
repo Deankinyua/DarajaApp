@@ -10,6 +10,7 @@ defmodule AshAuthentication.Strategy.OAuth2.Dsl do
   @spec dsl :: Custom.entity()
   def dsl do
     secret_type = AshAuthentication.Dsl.secret_type()
+    secret_list_type = AshAuthentication.Dsl.secret_list_type()
     secret_doc = AshAuthentication.Dsl.secret_doc()
 
     %Entity{
@@ -17,7 +18,7 @@ defmodule AshAuthentication.Strategy.OAuth2.Dsl do
       describe: "OAuth2 authentication",
       args: [{:optional, :name, :oauth2}],
       target: OAuth2,
-      modules: [
+      no_depend_modules: [
         :authorize_url,
         :base_url,
         :client_id,
@@ -53,6 +54,12 @@ defmodule AshAuthentication.Strategy.OAuth2.Dsl do
           doc: "Deprecated: Use `base_url` instead.",
           required: false
         ],
+        prevent_hijacking?: [
+          type: :boolean,
+          default: true,
+          doc:
+            "Requires a confirmation add_on to be present if the password strategy is used with the same identity_field."
+        ],
         auth_method: [
           type:
             {:in,
@@ -84,6 +91,14 @@ defmodule AshAuthentication.Strategy.OAuth2.Dsl do
           doc:
             "The API url to access the token endpoint, relative to `site`, e.g `token_url fn _, _ -> {:ok, \"https://example.com/oauth_token\"} end`. #{secret_doc}",
           required: true
+        ],
+        trusted_audiences: [
+          type: secret_list_type,
+          doc: """
+          A list of audiences which are trusted. #{secret_doc}
+          """,
+          required: false,
+          default: nil
         ],
         user_url: [
           type: secret_type,

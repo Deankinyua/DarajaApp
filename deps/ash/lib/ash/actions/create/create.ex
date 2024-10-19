@@ -23,21 +23,25 @@ defmodule Ash.Actions.Create do
       changeset = Helpers.apply_opts_load(changeset, opts)
 
       Ash.Tracer.span :action,
-                      Ash.Domain.Info.span_name(
-                        domain,
-                        changeset.resource,
-                        action.name
-                      ),
+                      fn ->
+                        Ash.Domain.Info.span_name(
+                          domain,
+                          changeset.resource,
+                          action.name
+                        )
+                      end,
                       opts[:tracer] do
-        metadata = %{
-          domain: domain,
-          resource: changeset.resource,
-          resource_short_name: Ash.Resource.Info.short_name(changeset.resource),
-          actor: opts[:actor],
-          tenant: opts[:tenant],
-          action: action.name,
-          authorize?: opts[:authorize?]
-        }
+        metadata = fn ->
+          %{
+            domain: domain,
+            resource: changeset.resource,
+            resource_short_name: Ash.Resource.Info.short_name(changeset.resource),
+            actor: opts[:actor],
+            tenant: opts[:tenant],
+            action: action.name,
+            authorize?: opts[:authorize?]
+          }
+        end
 
         Ash.Tracer.set_metadata(opts[:tracer], :action, metadata)
 
@@ -142,7 +146,7 @@ defmodule Ash.Actions.Create do
     if opts[:authorize?] do
       case Ash.can(changeset, opts[:actor],
              alter_source?: true,
-             pre_flight?: false,
+             pre_flight?: true,
              return_forbidden_error?: true,
              maybe_is: false
            ) do
@@ -243,7 +247,11 @@ defmodule Ash.Actions.Create do
              )}
 
           changeset ->
-            changeset = Ash.Changeset.hydrate_atomic_refs(changeset, opts[:actor])
+            changeset =
+              changeset
+              |> Ash.Changeset.hydrate_atomic_refs(opts[:actor])
+              |> Ash.Changeset.apply_atomic_constraints(opts[:actor])
+              |> Ash.Changeset.set_action_select()
 
             case Ash.Actions.ManagedRelationships.setup_managed_belongs_to_relationships(
                    changeset,
@@ -346,7 +354,41 @@ defmodule Ash.Actions.Create do
 
                         opts[:upsert?] ->
                           changeset.resource
-                          |> Ash.DataLayer.upsert(changeset, upsert_keys)
+                          |> Ash.DataLayer.upsert(
+                            changeset,
+                            upsert_keys,
+                            (opts[:upsert_identity] || changeset.action.upsert_identity) &&
+                              Ash.Resource.Info.identity(
+                                changeset.resource,
+                                opts[:upsert_identity] || changeset.action.upsert_identity
+                              )
+                          )
+                          |> case do
+                            {:ok, {:upsert_skipped, _query, callback}} ->
+                              if opts[:return_skipped_upsert?] do
+                                callback.()
+                              else
+                                {:error,
+                                 Ash.Error.Changes.StaleRecord.exception(
+                                   resource: changeset.resource,
+                                   filter: changeset.filter
+                                 )}
+                              end
+
+                            {:ok, %{__metadata__: %{upsert_skipped: true}}} = result ->
+                              if opts[:return_skipped_upsert?] do
+                                result
+                              else
+                                {:error,
+                                 Ash.Error.Changes.StaleRecord.exception(
+                                   resource: changeset.resource,
+                                   filter: changeset.filter
+                                 )}
+                              end
+
+                            other ->
+                              other
+                          end
                           |> Helpers.rollback_if_in_transaction(
                             changeset.resource,
                             changeset
@@ -380,6 +422,12 @@ defmodule Ash.Actions.Create do
                       end
                       |> case do
                         {:ok, result, instructions} ->
+                          result =
+                            Helpers.select(result, %{
+                              resource: changeset.resource,
+                              select: changeset.action_select
+                            })
+
                           {:ok, result,
                            instructions
                            |> Map.update!(
@@ -501,6 +549,15 @@ defmodule Ash.Actions.Create do
   defp manage_relationships(other, _, _, _), do: other
 
   defp set_tenant(changeset) do
+    changeset =
+      case changeset.data do
+        %{__metadata__: %{tenant: tenant}} ->
+          Ash.Changeset.set_tenant(changeset, tenant)
+
+        _ ->
+          changeset
+      end
+
     if changeset.tenant &&
          Ash.Resource.Info.multitenancy_strategy(changeset.resource) == :attribute do
       attribute = Ash.Resource.Info.multitenancy_attribute(changeset.resource)
@@ -509,7 +566,15 @@ defmodule Ash.Actions.Create do
 
       Ash.Changeset.force_change_attribute(changeset, attribute, attribute_value)
     else
-      changeset
+      if is_nil(Ash.Resource.Info.multitenancy_strategy(changeset.resource)) ||
+           Ash.Resource.Info.multitenancy_global?(changeset.resource) || changeset.tenant do
+        changeset
+      else
+        Ash.Changeset.add_error(
+          changeset,
+          Ash.Error.Invalid.TenantRequired.exception(resource: changeset.resource)
+        )
+      end
     end
   end
 

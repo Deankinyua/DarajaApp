@@ -250,10 +250,6 @@ defmodule Spark.Dsl do
           if Macro.quoted_literal?(opts) do
             opts
           else
-            IO.warn(
-              "Got a non-literal value for options to a `use Spark.DSL`. This is not supported and the options are being ignored."
-            )
-
             []
           end
 
@@ -279,7 +275,7 @@ defmodule Spark.Dsl do
                 key in parent_opts[:single_extension_kinds] ->
                   fragments_set =
                     Enum.filter(fragments, fn fragment ->
-                      fragment.opts
+                      fragment.opts()
                       |> Spark.Dsl.expand_modules(parent_opts, __CALLER__)
                       |> elem(0)
                       |> Keyword.get(key)
@@ -372,6 +368,7 @@ defmodule Spark.Dsl do
             @spark_is parent
             @spark_parent parent
 
+            @doc false
             def spark_is, do: @spark_is
 
             Module.register_attribute(__MODULE__, :persist, accumulate: true)
@@ -472,26 +469,56 @@ defmodule Spark.Dsl do
             |> Spark.Dsl.Transformer.sort()
             |> Enum.filter(& &1.after_compile?())
 
-          @extensions
-          |> Enum.flat_map(& &1.verifiers())
-          |> Enum.each(fn verifier ->
-            case verifier.verify(@spark_dsl_config) do
-              :ok ->
-                :ok
+          errors =
+            @extensions
+            |> Enum.flat_map(& &1.verifiers())
+            |> Enum.flat_map(fn verifier ->
+              try do
+                case verifier.verify(@spark_dsl_config) do
+                  :ok ->
+                    []
 
-              {:warn, warnings} ->
-                warnings
-                |> List.wrap()
-                |> Enum.each(&IO.warn(&1, Macro.Env.stacktrace(__ENV__)))
+                  {:warn, warnings} ->
+                    warnings
+                    |> List.wrap()
+                    |> Enum.each(&IO.warn(&1, Macro.Env.stacktrace(__ENV__)))
 
-              {:error, error} ->
-                if is_exception(error) do
-                  raise error
-                else
-                  raise "Verification error from #{inspect(verifier)}: #{inspect(error)}"
+                    []
+
+                  {:error, error} ->
+                    List.wrap(error)
                 end
-            end
-          end)
+              rescue
+                e ->
+                  [e]
+              end
+            end)
+
+          case Enum.uniq(errors) do
+            [] ->
+              :ok
+
+            [%Spark.Error.DslError{stacktrace: %{stacktrace: stacktrace}} = error] ->
+              reraise error, stacktrace
+
+            [error] ->
+              raise error
+
+            errors ->
+              raise Spark.Error.DslError,
+                message:
+                  "Multiple Errors Occurred\n\n" <>
+                    Enum.map_join(errors, "\n---\n", fn
+                      %Spark.Error.DslError{stacktrace: %{stacktrace: stacktrace}} = error ->
+                        Exception.format(:error, error, stacktrace)
+
+                      error ->
+                        {:current_stacktrace, stacktrace} =
+                          Process.info(self(), :current_stacktrace)
+
+                        Exception.format(:error, error, stacktrace)
+                    end)
+          end
 
           __MODULE__
           |> Spark.Dsl.Extension.run_transformers(
@@ -553,12 +580,14 @@ defmodule Spark.Dsl do
 
         def __spark_placeholder__, do: nil
 
+        @doc false
         for {path, %{entities: entities}} <- @spark_dsl_config do
           def entities(unquote(path)), do: unquote(Macro.escape(entities || []))
         end
 
         def entities(_), do: []
 
+        @doc false
         for {path, %{opts: opts}} <- @spark_dsl_config, is_list(path) do
           for {key, value} <- opts do
             def fetch_opt(unquote(path), unquote(key)) do
@@ -569,24 +598,35 @@ defmodule Spark.Dsl do
 
         def fetch_opt(_, _), do: :error
 
+        @doc false
         def spark_dsl_config do
           @spark_dsl_config
         end
 
-        @persisted @spark_dsl_config[:persist]
+        @persisted Map.drop(@spark_dsl_config[:persist], [:env])
 
+        @doc false
         for {key, value} <- @persisted do
-          def persisted(unquote(key), _), do: unquote(Macro.escape(value))
+          def persisted(unquote(Macro.escape(key)), _), do: unquote(Macro.escape(value))
         end
 
         def persisted(_, default), do: default
 
+        @doc false
         for {key, value} <- @persisted do
-          def persisted(unquote(key)), do: unquote(Macro.escape(value))
+          def fetch_persisted(unquote(Macro.escape(key))), do: {:ok, unquote(Macro.escape(value))}
+        end
+
+        def fetch_persisted(_), do: :error
+
+        @doc false
+        for {key, value} <- @persisted do
+          def persisted(unquote(Macro.escape(key))), do: unquote(Macro.escape(value))
         end
 
         def persisted(_), do: nil
 
+        @doc false
         def persisted do
           @persisted
         end
@@ -636,19 +676,23 @@ defmodule Spark.Dsl do
 
   @doc false
   def merge_with_warning(left, right, path, overwriting_by \\ nil) do
-    Keyword.merge(left, right, fn key, left, right ->
-      by =
-        if overwriting_by do
-          " by #{overwriting_by}"
-        else
-          ""
-        end
+    Keyword.merge(left, right, fn
+      _, left, left ->
+        left
 
-      IO.warn(
-        "#{Enum.join(path ++ [key], ".")} is being overwritten from #{inspect(left)} to #{inspect(right)}#{by}"
-      )
+      key, left, right ->
+        by =
+          if overwriting_by do
+            " by #{overwriting_by}"
+          else
+            ""
+          end
 
-      right
+        IO.warn(
+          "#{Enum.join(path ++ [key], ".")} is being overwritten from #{inspect(left)} to #{inspect(right)}#{by}"
+        )
+
+        right
     end)
   end
 end

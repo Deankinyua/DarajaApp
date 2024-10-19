@@ -36,12 +36,14 @@ defmodule Ash.Type do
     atom: Ash.Type.Atom,
     string: Ash.Type.String,
     integer: Ash.Type.Integer,
+    file: Ash.Type.File,
     float: Ash.Type.Float,
     duration_name: Ash.Type.DurationName,
     function: Ash.Type.Function,
     boolean: Ash.Type.Boolean,
     struct: Ash.Type.Struct,
     uuid: Ash.Type.UUID,
+    uuid_v7: Ash.Type.UUIDv7,
     binary: Ash.Type.Binary,
     date: Ash.Type.Date,
     time: Ash.Type.Time,
@@ -163,7 +165,7 @@ defmodule Ash.Type do
 
   ## Constraints
 
-  Constraints are a way of validating an input type. This validation can be used in both attributes and arguments. The kinds of constraints you can apply depends on the type the data. You can find all types in `Ash.Type` . Each type has its own page on which the available constraints are listed. For example in `Ash.Type.String` you can find 5 constraints:
+  Constraints are a way of validating an input type. This validation can be used in both attributes and arguments. The kinds of constraints you can apply depends on the type of data. You can find all types in `Ash.Type` . Each type has its own page on which the available constraints are listed. For example in `Ash.Type.String` you can find 5 constraints:
 
   - `:max_length`
   - `:min_length`
@@ -298,7 +300,8 @@ defmodule Ash.Type do
           reuse_values?: boolean,
           strict_loads?: boolean,
           initial_data: term(),
-          relationship_path: list(atom)
+          relationship_path: list(atom),
+          authorize?: boolean
         }
 
   @callback storage_type() :: Ecto.Type.t()
@@ -330,6 +333,7 @@ defmodule Ash.Type do
   @callback ecto_type() :: Ecto.Type.t()
   @callback cast_input(term, constraints) ::
               {:ok, term} | error()
+  @callback matches_type?(term, constraints) :: boolean()
   @callback cast_input_array(list(term), constraints) :: {:ok, list(term)} | error()
   @callback cast_stored(term, constraints) :: {:ok, term} | error()
   @callback cast_stored_array(list(term), constraints) ::
@@ -374,6 +378,11 @@ defmodule Ash.Type do
               {:atomic, Ash.Expr.t()} | {:error, Ash.Error.t()} | {:not_atomic, String.t()}
   @callback cast_atomic_array(new_value :: Ash.Expr.t(), constraints) ::
               {:atomic, Ash.Expr.t()} | {:error, Ash.Error.t()} | {:not_atomic, String.t()}
+  @callback apply_atomic_constraints(new_value :: Ash.Expr.t(), constraints) ::
+              :ok | {:ok, Ash.Expr.t()} | {:error, Ash.Error.t()}
+  @callback apply_atomic_constraints_array(new_value :: Ash.Expr.t(), constraints) ::
+              :ok | {:ok, Ash.Expr.t()} | {:error, Ash.Error.t()}
+
   @callback custom_apply_constraints_array?() :: boolean
   @callback load(
               values :: list(term),
@@ -731,8 +740,6 @@ defmodule Ash.Type do
     end
   end
 
-  def cast_input(_, nil, _), do: {:ok, nil}
-
   def cast_input(type, %type{__metadata__: _} = value, _), do: {:ok, value}
 
   def cast_input(type, term, constraints) do
@@ -777,6 +784,24 @@ defmodule Ash.Type do
       {:ok, result} -> {:ok, Enum.reverse(result)}
       other -> other
     end
+  end
+
+  @doc """
+  Detects as a best effort if an arbitrary value matches the given type
+  """
+  def matches_type?(type, value, constraints \\ [])
+
+  def matches_type?({:array, type}, value, constraints) when is_list(value) do
+    Enum.all?(value, &matches_type?(type, &1, constraints))
+  end
+
+  def matches_type?({:array, type}, %MapSet{} = value, constraints) do
+    Enum.all?(value, &matches_type?(type, &1, constraints))
+  end
+
+  def matches_type?(type, value, constraints) do
+    type = Ash.Type.get_type(type)
+    type.matches_type?(value, constraints)
   end
 
   @doc """
@@ -979,24 +1004,39 @@ defmodule Ash.Type do
   end
 
   @spec cast_atomic(t(), term, constraints()) ::
-          {:atomic, Ash.Expr.t()} | {:error, Ash.Error.t()} | {:not_atomic, String.t()}
+          {:atomic, Ash.Expr.t()}
+          | {:ok, term}
+          | {:error, Ash.Error.t()}
+          | {:not_atomic, String.t()}
   def cast_atomic({:array, {:array, _}}, _term, _constraints),
     do: {:not_atomic, "cannot currently atomically update doubly nested arrays"}
 
   def cast_atomic({:array, type}, term, constraints) do
     type = get_type(type)
 
-    with {:ok, value} <- maybe_cast_input({:array, type}, term, constraints) do
-      type.cast_atomic_array(value, item_constraints(constraints))
+    if type.handle_change_array?() || type.prepare_change_array?() || Ash.Expr.expr?(term) do
+      with {:ok, value} <- maybe_cast_input({:array, type}, term, constraints) do
+        type.cast_atomic_array(value, item_constraints(constraints))
+      end
+    else
+      with {:ok, v} <- cast_input({:array, type}, term, constraints) do
+        apply_constraints({:array, type}, v, constraints)
+      end
     end
   end
 
   def cast_atomic(type, term, constraints) do
     type = get_type(type)
 
-    with {:ok, value} <-
-           maybe_cast_input(type, term, constraints) do
-      type.cast_atomic(value, constraints)
+    if type.handle_change?() || type.prepare_change?() || Ash.Expr.expr?(term) do
+      with {:ok, value} <-
+             maybe_cast_input(type, term, constraints) do
+        type.cast_atomic(value, constraints)
+      end
+    else
+      with {:ok, v} <- Ash.Type.cast_input(type, term, constraints) do
+        apply_constraints(type, v, constraints)
+      end
     end
   end
 
@@ -1005,6 +1045,31 @@ defmodule Ash.Type do
       {:ok, term}
     else
       Ash.Type.cast_input(type, term, constraints)
+    end
+  end
+
+  @spec apply_atomic_constraints(t(), term, constraints()) ::
+          {:ok, Ash.Expr.t()} | {:error, Ash.Error.t()}
+  def apply_atomic_constraints({:array, {:array, _}}, _term, _constraints),
+    do: {:not_atomic, "cannot currently atomically update doubly nested arrays"}
+
+  def apply_atomic_constraints({:array, type}, term, constraints) do
+    type = get_type(type)
+
+    case type.apply_atomic_constraints_array(term, item_constraints(constraints)) do
+      :ok -> {:ok, term}
+      {:ok, term} -> {:ok, term}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  def apply_atomic_constraints(type, term, constraints) do
+    type = get_type(type)
+
+    case type.apply_atomic_constraints(term, constraints) do
+      :ok -> {:ok, term}
+      {:ok, term} -> {:ok, term}
+      {:error, error} -> {:error, error}
     end
   end
 
@@ -1352,6 +1417,10 @@ defmodule Ash.Type do
       @impl true
       def describe([]), do: String.trim_leading(inspect(__MODULE__), "Ash.Type.")
 
+      @impl true
+      def matches_type?(_, _), do: false
+
+      @impl true
       def describe(constraints) do
         "#{String.trim_leading(inspect(__MODULE__), "Ash.Type.")} | #{inspect(constraints)}"
       end
@@ -1367,12 +1436,6 @@ defmodule Ash.Type do
 
       @impl true
       def composite_types(_constraints), do: []
-
-      @impl true
-      def handle_change(_old_value, new_value, _constraints), do: {:ok, new_value}
-
-      @impl true
-      def prepare_change(_old_value, new_value, _constraints), do: {:ok, new_value}
 
       @impl true
       def include_source(constraints, _), do: constraints
@@ -1526,7 +1589,32 @@ defmodule Ash.Type do
       end
 
       @impl true
-      def cast_atomic_array(new_value, constraints) do
+      def apply_atomic_constraints(new_value, _constraints) do
+        {:ok, new_value}
+      end
+
+      @impl true
+      def apply_atomic_constraints_array(nil, _), do: {:ok, nil}
+
+      def apply_atomic_constraints_array(new_value, constraints) when is_list(new_value) do
+        new_value
+        |> Enum.reduce_while({:ok, []}, fn val, {:ok, vals} ->
+          case apply_atomic_constraints(val, constraints[:items] || []) do
+            {:ok, atomic} ->
+              {:cont, {:ok, [atomic | vals]}}
+
+            {:error, error} ->
+              {:halt, {:error, error}}
+          end
+        end)
+        |> case do
+          {:ok, vals} -> {:ok, Enum.reverse(vals)}
+          {:error, error} -> {:error, error}
+        end
+      end
+
+      @impl true
+      def cast_atomic_array(new_value, constraints) when is_list(new_value) do
         new_value
         |> Enum.reduce_while({:atomic, []}, fn val, {:atomic, vals} ->
           case cast_atomic(val, constraints) do
@@ -1543,6 +1631,14 @@ defmodule Ash.Type do
         end
       end
 
+      def cast_atomic_array(nil, _) do
+        {:atomic, nil}
+      end
+
+      def cast_atomic_array(new_value, _constraints) do
+        {:not_atomic, "Cannot cast a non-literal list atomically"}
+      end
+
       @impl true
       def generator(constraints) do
         raise "generator/1 unimplemented for #{inspect(__MODULE__)}"
@@ -1555,21 +1651,22 @@ defmodule Ash.Type do
                      generator: 1,
                      cast_atomic: 2,
                      cast_atomic_array: 2,
+                     apply_atomic_constraints: 2,
+                     apply_atomic_constraints_array: 2,
                      cast_input_array: 2,
                      dump_to_native_array: 2,
                      dump_to_embedded: 2,
                      dump_to_embedded_array: 2,
+                     matches_type?: 2,
                      embedded?: 0,
                      ecto_type: 0,
                      merge_load: 4,
                      array_constraints: 0,
                      apply_constraints: 2,
                      cast_stored_array: 2,
-                     handle_change: 3,
                      loaded?: 4,
                      composite?: 1,
                      composite_types: 1,
-                     prepare_change: 3,
                      cast_in_query?: 1
     end
   end
@@ -1834,6 +1931,24 @@ defmodule Ash.Type do
 
         @impl true
         def prepare_change_array?, do: false
+      end
+
+      if Module.defines?(__MODULE__, {:handle_change, 3}) do
+        def handle_change?, do: true
+      else
+        @impl true
+        def handle_change(_old_value, new_value, _constraints), do: {:ok, new_value}
+
+        def handle_change?, do: false
+      end
+
+      if Module.defines?(__MODULE__, {:prepare_change, 3}) do
+        def prepare_change?, do: true
+      else
+        @impl true
+        def prepare_change(_old_value, new_value, _constraints), do: {:ok, new_value}
+
+        def prepare_change?, do: false
       end
 
       cond do

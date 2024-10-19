@@ -4,14 +4,14 @@ defmodule Phoenix.Token do
   for use in Channels, API authentication, and more.
 
   The data stored in the token is signed to prevent tampering, and is
-  optionally encrypted.  This means that, so long as the
+  optionally encrypted. This means that, so long as the
   key (see below) remains secret, you can be assured that the data
   stored in the token has not been tampered with by a third party.
   However, unless the token is encrypted, it is not safe to use this
   token to store private information, such as a user's sensitive
   identification data, as it can be trivially decoded. If the
-  token is encrypted, its contents will kept secret from the client,
-  but it is still a best practice to encode as little secret
+  token is encrypted, its contents will be kept secret from the
+  client, but it is still a best practice to encode as little secret
   information as possible, to minimize the impact of key leakage.
 
   ## Example
@@ -45,7 +45,7 @@ defmodule Phoenix.Token do
 
   The second argument is a [cryptographic salt](https://en.wikipedia.org/wiki/Salt_(cryptography))
   which must be the same in both calls to `sign/4` and `verify/4`, or
-  both calls to `encrypt/4` and decrypt/4`. For instance, it may be
+  both calls to `encrypt/4` and `decrypt/4`. For instance, it may be
   called "user auth" and treated as namespace when generating a token
   that will be used to authenticate users on channels or on your APIs.
 
@@ -125,7 +125,7 @@ defmodule Phoenix.Token do
     * `:key_digest` - option passed to `Plug.Crypto.KeyGenerator`
       when generating the encryption and signing keys. Defaults to `:sha256`
     * `:signed_at` - set the timestamp of the token in seconds.
-      Defaults to `System.system_time(:second)`
+      Defaults to `System.os_time(:millisecond)`
     * `:max_age` - the default maximum age of the token. Defaults to
       86400 seconds (1 day) and it may be overridden on `verify/4`.
 
@@ -151,7 +151,7 @@ defmodule Phoenix.Token do
     * `:key_digest` - option passed to `Plug.Crypto.KeyGenerator`
       when generating the encryption and signing keys. Defaults to `:sha256`
     * `:signed_at` - set the timestamp of the token in seconds.
-      Defaults to `System.system_time(:second)`
+      Defaults to `System.os_time(:millisecond)`
     * `:max_age` - the default maximum age of the token. Defaults to
       86400 seconds (1 day) and it may be overridden on `decrypt/4`.
 

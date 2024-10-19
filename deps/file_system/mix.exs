@@ -2,13 +2,13 @@ defmodule FileSystem.MixProject do
   use Mix.Project
 
   @source_url "https://github.com/falood/file_system"
-  @version "1.0.0"
+  @version "1.0.1"
 
   def project do
     [
       app: :file_system,
       version: @version,
-      elixir: "~> 1.3",
+      elixir: "~> 1.11",
       deps: deps(),
       description: description(),
       package: package(),

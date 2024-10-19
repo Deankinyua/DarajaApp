@@ -319,19 +319,20 @@ defmodule Ash.Resource.Info do
     end
   end
 
-  def relationship(resource, relationship_name) when is_binary(relationship_name) do
-    Extension.get_persisted(resource, :relationships_by_name)[relationship_name] ||
-      resource
-      |> relationships()
-      |> Enum.find(&(to_string(&1.name) == relationship_name))
+  def relationship(resource, relationship_name)
+      when is_binary(relationship_name) or is_atom(relationship_name) do
+    case Extension.get_persisted(resource, :relationships_by_name) do
+      value when is_map(value) ->
+        value[relationship_name]
+
+      nil ->
+        resource
+        |> relationships()
+        |> Enum.find(&(to_string(&1.name) == to_string(relationship_name)))
+    end
   end
 
-  def relationship(resource, relationship_name) do
-    Extension.get_persisted(resource, :relationships_by_name)[relationship_name] ||
-      resource
-      |> relationships()
-      |> Enum.find(&(&1.name == relationship_name))
-  end
+  def relationship(_, _), do: nil
 
   @doc "Returns all public relationships of a resource"
   @spec public_relationships(Spark.Dsl.t() | Ash.Resource.t()) ::
@@ -349,6 +350,14 @@ defmodule Ash.Resource.Info do
         relationships(resource),
         &(&1.type == :belongs_to && !&1.allow_nil?)
       )
+  end
+
+  def attributes_to_require(resource) do
+    Extension.get_persisted(resource, :attributes_to_require)
+  end
+
+  def attributes_to_require(resource, action_name) do
+    Extension.get_persisted(resource, {:attributes_to_require, action_name})
   end
 
   @doc "Get a public relationship by name or path"
@@ -420,17 +429,19 @@ defmodule Ash.Resource.Info do
   @doc "Get a calculation by name"
   @spec calculation(Spark.Dsl.t() | Ash.Resource.t(), atom | String.t()) ::
           Ash.Resource.Calculation.t() | nil
-  def calculation(resource, name) when is_binary(name) do
-    resource
-    |> calculations()
-    |> Enum.find(&(to_string(&1.name) == name))
+  def calculation(resource, name) when is_binary(name) or is_atom(name) do
+    case Extension.get_persisted(resource, :calculations_by_name) do
+      value when is_map(value) ->
+        value[name]
+
+      nil ->
+        resource
+        |> calculations()
+        |> Enum.find(&(to_string(&1.name) == to_string(name)))
+    end
   end
 
-  def calculation(resource, name) do
-    resource
-    |> calculations()
-    |> Enum.find(&(&1.name == name))
-  end
+  def calculation(_, _), do: nil
 
   @doc "Returns all public calculations of a resource"
   @spec public_calculations(Spark.Dsl.t() | Ash.Resource.t()) ::
@@ -617,6 +628,8 @@ defmodule Ash.Resource.Info do
   @spec action_input?(Ash.Resource.t(), action :: atom(), input :: atom() | String.t()) ::
           boolean()
   def action_input?(resource, action, input) do
+    # Extension.get_persisted(resource, {:action_inputs, action, input}) || false
+
     case Extension.get_persisted(resource, {:action_inputs, action}) do
       nil -> false
       map_set -> input in map_set
@@ -630,10 +643,26 @@ defmodule Ash.Resource.Info do
     Extension.get_persisted(resource, {:action_inputs, action}) || MapSet.new()
   end
 
+  @doc "Returns the list of attributes that must be selected for an action invocation"
+  @spec action_select(Ash.Resource.t(), action :: atom() | Ash.Resource.Actions.action()) ::
+          list(atom) | nil
+  def action_select(resource, %{name: name}) do
+    action_select(resource, name)
+  end
+
+  def action_select(resource, action) do
+    Extension.get_persisted(resource, {:action_select, action})
+  end
+
   @doc "Returns all attributes of a resource"
   @spec attributes(Spark.Dsl.t() | Ash.Resource.t()) :: [Ash.Resource.Attribute.t()]
   def attributes(resource) do
     Extension.get_entities(resource, [:attributes])
+  end
+
+  @spec attribute_names(Spark.Dsl.t() | Ash.Resource.t()) :: MapSet.t()
+  def attribute_names(resource) do
+    Extension.get_persisted(resource, :attribute_names)
   end
 
   @doc "Returns all attributes of a resource with lazy non-matching-defaults"
@@ -711,18 +740,16 @@ defmodule Ash.Resource.Info do
   @doc "Get an attribute name from the resource"
   @spec attribute(Spark.Dsl.t() | Ash.Resource.t(), String.t() | atom) ::
           Ash.Resource.Attribute.t() | nil
-  def attribute(resource, name) when is_binary(name) do
-    Extension.get_persisted(resource, :attributes_by_name)[name] ||
-      resource
-      |> attributes()
-      |> Enum.find(&(to_string(&1.name) == name))
-  end
+  def attribute(resource, name) when is_binary(name) or is_atom(name) do
+    case Extension.get_persisted(resource, :attributes_by_name) do
+      value when is_map(value) ->
+        value[name]
 
-  def attribute(resource, name) do
-    Extension.get_persisted(resource, :attributes_by_name)[name] ||
-      resource
-      |> attributes()
-      |> Enum.find(&(&1.name == name))
+      nil ->
+        resource
+        |> attributes()
+        |> Enum.find(&(to_string(&1.name) == to_string(name)))
+    end
   end
 
   @doc "Returns all public attributes of a resource"
@@ -756,6 +783,16 @@ defmodule Ash.Resource.Info do
       %{destination: destination} -> related(destination, rest)
       nil -> nil
     end
+  end
+
+  @spec always_selected_attribute_names(Spark.Dsl.t() | Ash.Resource.t()) :: MapSet.t()
+  def always_selected_attribute_names(resource) do
+    Extension.get_persisted(resource, :always_selected_attribute_names)
+  end
+
+  @spec selected_by_default_attribute_names(Spark.Dsl.t() | Ash.Resource.t()) :: MapSet.t()
+  def selected_by_default_attribute_names(resource) do
+    Extension.get_persisted(resource, :selected_by_default_attribute_names)
   end
 
   @doc "Returns all attributes, aggregates, calculations and relationships of a resource"

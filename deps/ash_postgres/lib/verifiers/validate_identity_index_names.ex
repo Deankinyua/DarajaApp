@@ -26,7 +26,7 @@ defmodule AshPostgres.Verifiers.ValidateIdentityIndexNames do
       |> Enum.map(fn identity ->
         {identity, identity_index_names[identity.name] || "#{table}_#{identity.name}_index"}
       end)
-      |> Enum.group_by(&elem(&1, 1))
+      |> Enum.group_by(&elem(&1, 1), &elem(&1, 0))
       |> Enum.each(fn
         {name, [_, _ | _] = identities} ->
           raise Spark.Error.DslError,
@@ -46,10 +46,10 @@ defmodule AshPostgres.Verifiers.ValidateIdentityIndexNames do
               message: """
               Identity #{identity.name} has a name that is too long. Names must be 63 characters or less.
 
-              Please configure an index name for this identity in the `identity_index_names` configuration. For example:application
+              Please configure an index name for this identity in the `identity_index_names` configuration. For example:
 
               postgres do
-                identity_index_names #{inspect(identity.name)}: "a_shorter_name"
+                identity_index_names #{identity.name}: "a_shorter_name"
               end
               """
           end

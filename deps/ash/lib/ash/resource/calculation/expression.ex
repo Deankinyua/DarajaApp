@@ -11,15 +11,24 @@ defmodule Ash.Resource.Calculation.Expression do
         context.source_context
       )
 
-    if context.type do
-      {:ok, expr} =
-        Ash.Query.Function.Type.new([
-          expr,
-          context.type,
-          context.constraints || []
-        ])
+    if type = context.type do
+      case expr do
+        %Ash.Query.Function.Type{arguments: [_, ^type | _]} ->
+          expr
 
-      expr
+        %Ash.Query.Call{name: :type, args: [_, ^type | _]} ->
+          expr
+
+        _ ->
+          {:ok, expr} =
+            Ash.Query.Function.Type.new([
+              expr,
+              context.type,
+              context.constraints || []
+            ])
+
+          expr
+      end
     else
       expr
     end
@@ -39,12 +48,14 @@ defmodule Ash.Resource.Calculation.Expression do
     Enum.reduce_while(records, {:ok, []}, fn record, {:ok, values} ->
       case Ash.Filter.hydrate_refs(expression, %{
              resource: resource,
-             public?: false
+             public?: false,
+             eval?: true
            }) do
         {:ok, expression} ->
           case Ash.Expr.eval_hydrated(expression,
                  record: record,
                  resource: resource,
+                 actor: context.actor,
                  unknown_on_unknown_refs?: true
                ) do
             {:ok, value} ->
@@ -96,12 +107,22 @@ defmodule Ash.Resource.Calculation.Expression do
            resource: query.resource,
            calculations: query.calculations,
            aggregates: query.aggregates,
-           public?: false
+           public?: false,
+           eval?: true
          }) do
       {:ok, expression} ->
         expression
         |> Ash.Filter.list_refs()
-        |> Enum.map(& &1.attribute)
+        |> Enum.map(fn
+          %{attribute: %Ash.Query.Aggregate{} = agg} ->
+            agg
+
+          %{attribute: %Ash.Query.Calculation{} = calc} ->
+            calc
+
+          %{attribute: %{name: name}} ->
+            name
+        end)
         |> Enum.concat(Ash.Filter.used_aggregates(expression))
         |> Enum.uniq()
 

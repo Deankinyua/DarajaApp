@@ -55,11 +55,13 @@ defmodule Ash.Resource.Dsl do
     Accepts all the same options as `d:Ash.Resource.Dsl.attributes.attribute`, except it sets
     the following different defaults:
 
-        writable? false
-        default &DateTime.utc_now/0
-        match_other_defaults? true
-        type Ash.Type.UTCDatetimeUsec
-        allow_nil? false
+    ```elixir
+    writable? false
+    default &DateTime.utc_now/0
+    match_other_defaults? true
+    type Ash.Type.UTCDatetimeUsec
+    allow_nil? false
+    ```
     """,
     examples: [
       "create_timestamp :inserted_at"
@@ -78,12 +80,14 @@ defmodule Ash.Resource.Dsl do
     Accepts all the same options as `d:Ash.Resource.Dsl.attributes.attribute`, except it sets
     the following different defaults:
 
-        writable? false
-        default &DateTime.utc_now/0
-        match_other_defaults? true
-        update_default &DateTime.utc_now/0
-        type Ash.Type.UTCDatetimeUsec
-        allow_nil? false
+    ```elixir
+    writable? false
+    default &DateTime.utc_now/0
+    match_other_defaults? true
+    update_default &DateTime.utc_now/0
+    type Ash.Type.UTCDatetimeUsec
+    allow_nil? false
+    ```
     """,
     examples: [
       "update_timestamp :updated_at"
@@ -104,11 +108,13 @@ defmodule Ash.Resource.Dsl do
     Accepts all the same options as `d:Ash.Resource.Dsl.attributes.attribute`, except for `allow_nil?`, but it sets
     the following different defaults:
 
-        public? true
-        writable? false
-        primary_key? true
-        generated? true
-        type :integer
+    ```elixir
+    public? true
+    writable? false
+    primary_key? true
+    generated? true
+    type :integer
+    ```
     """,
     examples: [
       "integer_primary_key :id"
@@ -128,11 +134,13 @@ defmodule Ash.Resource.Dsl do
     Accepts all the same options as `d:Ash.Resource.Dsl.attributes.attribute`, except for `allow_nil?`, but it sets
     the following different defaults:
 
-        writable? false
-        public? true
-        default &Ash.UUID.generate/0
-        primary_key? true
-        type :uuid
+    ```elixir
+    writable? false
+    public? true
+    default &Ash.UUID.generate/0
+    primary_key? true
+    type :uuid
+    ```
     """,
     examples: [
       "uuid_primary_key :id"
@@ -140,6 +148,32 @@ defmodule Ash.Resource.Dsl do
     args: [:name],
     target: Ash.Resource.Attribute,
     schema: Ash.Resource.Attribute.uuid_primary_key_schema(),
+    auto_set_fields: [allow_nil?: false],
+    transform: {Ash.Resource.Attribute, :transform, []}
+  }
+
+  @uuid_v7_primary_key %Spark.Dsl.Entity{
+    name: :uuid_v7_primary_key,
+    describe: """
+    Declares a non writable, non-nil, primary key column of type `uuid_v7`, which defaults to `Ash.UUIDv7.generate/0`.
+
+    Accepts all the same options as `d:Ash.Resource.Dsl.attributes.attribute`, except for `allow_nil?`, but it sets
+    the following different defaults:
+
+    ```elixir
+    writable? false
+    public? true
+    default &Ash.UUIDv7.generate/0
+    primary_key? true
+    type :uuid_v7
+    ```
+    """,
+    examples: [
+      "uuid_v7_primary_key :id"
+    ],
+    args: [:name],
+    target: Ash.Resource.Attribute,
+    schema: Ash.Resource.Attribute.uuid_v7_primary_key_schema(),
     auto_set_fields: [allow_nil?: false],
     transform: {Ash.Resource.Attribute, :transform, []}
   }
@@ -187,7 +221,8 @@ defmodule Ash.Resource.Dsl do
       @create_timestamp,
       @update_timestamp,
       @integer_primary_key,
-      @uuid_primary_key
+      @uuid_primary_key,
+      @uuid_v7_primary_key
     ],
     patchable?: true
   }
@@ -438,7 +473,7 @@ defmodule Ash.Resource.Dsl do
     describe: """
     Declares a validation for creates and updates.
 
-    See `Ash.Resource.Change` for more.
+    See `Ash.Resource.Validation.Builtins` or `Ash.Resource.Validation` for more.
     """,
     examples: [
       "validate {Mod, [foo: :bar]}",
@@ -456,7 +491,7 @@ defmodule Ash.Resource.Dsl do
     describe: """
     Declares a validation to be applied to the changeset.
 
-    See `Ash.Resource.Validation` for more.
+    See `Ash.Resource.Validation.Builtins` or `Ash.Resource.Validation` for more.
     """,
     examples: [
       "validate changing(:email)"
@@ -644,7 +679,7 @@ defmodule Ash.Resource.Dsl do
     """,
     examples: [
       """
-      destroy :soft_delete do
+      destroy :destroy do
         primary? true
       end
       """
@@ -1043,6 +1078,7 @@ defmodule Ash.Resource.Dsl do
     schema:
       Keyword.put(Ash.Resource.Aggregate.schema(), :include_nil?,
         type: :boolean,
+        default: false,
         doc:
           "Whether or not to include `nil` values in the aggregate. Only relevant for `list` and `first` aggregates."
       ),
@@ -1233,10 +1269,17 @@ defmodule Ash.Resource.Dsl do
     target: Ash.Resource.Aggregate,
     args: [:name, :relationship_path, :field],
     schema:
-      Keyword.put(Ash.Resource.Aggregate.schema(), :uniq?,
+      Ash.Resource.Aggregate.schema()
+      |> Keyword.put(:uniq?,
         type: :boolean,
         doc: "Whether or not to count unique values only",
         default: false
+      )
+      |> Keyword.put(:include_nil?,
+        type: :boolean,
+        default: false,
+        doc:
+          "Whether or not to include `nil` values in the aggregate. Only relevant for `list` and `first` aggregates."
       ),
     auto_set_fields: [kind: :list]
   }
@@ -1307,10 +1350,10 @@ defmodule Ash.Resource.Dsl do
     Takes a module that must adopt the `Ash.Resource.Calculation` behaviour. See that module
     for more information.
 
-    To ensure that the necessary fields are selected:
+    To ensure that the necessary fields are loaded:
 
-    1.) Specifying the `select` option on a calculation in the resource.
-    2.) Define a `select/2` callback in the calculation module
+    1.) Specifying the `load` option on a calculation in the resource.
+    2.) Define a `load/3` callback in the calculation module
     3.) Set `always_select?` on the attribute in question
 
     See the [calculations guide](/documentation/topics/resources/calculations.md) for more.
@@ -1318,7 +1361,7 @@ defmodule Ash.Resource.Dsl do
     examples: [
       {
         "`Ash.Resource.Calculation` implementation example:",
-        "calculate :full_name, :string, {MyApp.FullName, keys: [:first_name, :last_name]}, select: [:first_name, :last_name]"
+        "calculate :full_name, :string, {MyApp.FullName, keys: [:first_name, :last_name]}, load: [:first_name, :last_name]"
       },
       {
         "`expr/1` example:",
@@ -1442,6 +1485,7 @@ defmodule Ash.Resource.Dsl do
 
   @persisters [
     Ash.Resource.Transformers.CacheRelationships,
+    Ash.Resource.Transformers.CacheCalculations,
     Ash.Resource.Transformers.AttributesByName,
     Ash.Resource.Transformers.ValidationsAndChangesForType,
     Ash.Resource.Transformers.CacheUniqueKeys,
@@ -1452,9 +1496,9 @@ defmodule Ash.Resource.Dsl do
     Ash.Resource.Verifiers.ValidateRelationshipAttributesMatch,
     Ash.Resource.Verifiers.VerifyReservedCalculationArguments,
     Ash.Resource.Verifiers.VerifyIdentityFields,
+    Ash.Resource.Verifiers.VerifySelectedByDefault,
     Ash.Resource.Verifiers.EnsureAggregateFieldIsAttributeOrCalculation,
     Ash.Resource.Verifiers.ValidateRelationshipAttributes,
-    Ash.Resource.Verifiers.CountableActions,
     Ash.Resource.Verifiers.NoReservedFieldNames,
     Ash.Resource.Verifiers.ValidateAccept,
     Ash.Resource.Verifiers.ValidateActionTypesSupported,
@@ -1467,7 +1511,8 @@ defmodule Ash.Resource.Dsl do
     Ash.Resource.Verifiers.VerifyActionsAtomic,
     Ash.Resource.Verifiers.VerifyNotifiers,
     Ash.Resource.Verifiers.VerifyPrimaryKeyPresent,
-    Ash.Resource.Verifiers.VerifyGenericActionReactorInputs
+    Ash.Resource.Verifiers.VerifyGenericActionReactorInputs,
+    Ash.Resource.Verifiers.ValidateArgumentsToCodeInterface
   ]
 
   @moduledoc false

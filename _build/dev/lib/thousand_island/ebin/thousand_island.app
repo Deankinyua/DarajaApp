@@ -1,5 +1,5 @@
 {application,thousand_island,
-             [{config_mtime,1719649741},
+             [{config_mtime,1729332001},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir,logger,ssl,telemetry]},
               {description,"A simple & modern pure Elixir socket server"},

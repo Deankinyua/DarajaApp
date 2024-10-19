@@ -44,13 +44,18 @@ defmodule Ash.Type.String do
   def storage_type(_), do: :string
 
   @impl true
+  def matches_type?(v, _) do
+    is_binary(v)
+  end
+
+  @impl true
   def cast_atomic(expr, constraints) when is_binary(expr) do
-    with {:ok, value} <- cast_input(expr, constraints),
-         {:ok, value} <- apply_constraints(value, constraints) do
+    with {:ok, value} <- cast_input(expr, constraints) do
       {:atomic, value}
     end
   end
 
+  @impl true
   def cast_atomic(expr, constraints) do
     # We can't support `match` currently, as we don't have a multi-target regex
     if constraints[:match] do
@@ -76,6 +81,13 @@ defmodule Ash.Type.String do
           )
         end
 
+      {:atomic, expr}
+    end
+  end
+
+  @impl true
+  def apply_atomic_constraints(expr, constraints) do
+    if Ash.Expr.expr?(expr) do
       validated =
         case {constraints[:max_length], constraints[:min_length]} do
           {nil, nil} ->
@@ -130,7 +142,9 @@ defmodule Ash.Type.String do
             )
         end
 
-      {:atomic, validated}
+      {:ok, validated}
+    else
+      apply_constraints(expr, constraints)
     end
   end
 
@@ -145,12 +159,19 @@ defmodule Ash.Type.String do
         Keyword.take(constraints, [:max_length, :min_length])
       )
 
-    if constraints[:trim?] && constraints[:min_length] do
-      StreamData.filter(base_generator, fn value ->
-        value |> String.trim() |> String.length() |> Kernel.>=(constraints[:min_length])
-      end)
-    else
-      base_generator
+    cond do
+      constraints[:trim?] && constraints[:min_length] ->
+        StreamData.filter(base_generator, fn value ->
+          value |> String.trim() |> String.length() |> Kernel.>=(constraints[:min_length])
+        end)
+
+      constraints[:min_length] ->
+        StreamData.filter(base_generator, fn value ->
+          value |> String.length() |> Kernel.>=(constraints[:min_length])
+        end)
+
+      true ->
+        base_generator
     end
   end
 

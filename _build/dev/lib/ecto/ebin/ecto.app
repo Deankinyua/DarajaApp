@@ -1,5 +1,5 @@
 {application,ecto,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332001},
               {optional_applications,[jason]},
               {applications,[kernel,stdlib,elixir,logger,crypto,eex,telemetry,
                              decimal,jason]},
@@ -47,6 +47,7 @@
                         'Elixir.Ecto.Query.Builder.Select',
                         'Elixir.Ecto.Query.Builder.Update',
                         'Elixir.Ecto.Query.Builder.Windows',
+                        'Elixir.Ecto.Query.ByExpr',
                         'Elixir.Ecto.Query.CastError',
                         'Elixir.Ecto.Query.CompileError',
                         'Elixir.Ecto.Query.DynamicExpr',
@@ -86,5 +87,5 @@
                         'Elixir.Mix.Tasks.Ecto.Drop',
                         'Elixir.Mix.Tasks.Ecto.Gen.Repo']},
               {registered,[]},
-              {vsn,"3.11.2"},
+              {vsn,"3.12.4"},
               {mod,{'Elixir.Ecto.Application',[]}}]}.

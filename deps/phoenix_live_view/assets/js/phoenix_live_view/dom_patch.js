@@ -99,9 +99,13 @@ export default class DOMPatch {
 
     let externalFormTriggered = null
 
-    function morph(targetContainer, source){
+    function morph(targetContainer, source, withChildren=false){
       morphdom(targetContainer, source, {
-        childrenOnly: targetContainer.getAttribute(PHX_COMPONENT) === null,
+        // normally, we are running with childrenOnly, as the patch HTML for a LV
+        // does not include the LV attrs (data-phx-session, etc.)
+        // when we are patching a live component, we do want to patch the root element as well;
+        // another case is the recursive patch of a stream item that was kept on reset (-> onBeforeNodeAdded)
+        childrenOnly: targetContainer.getAttribute(PHX_COMPONENT) === null && !withChildren,
         getNodeKey: (node) => {
           if(DOM.isPhxDestroyed(node)){ return null }
           // If we have a join patch, then by definition there was no PHX_MAGIC_ID.
@@ -137,7 +141,7 @@ export default class DOMPatch {
           if(!isJoinPatch && this.streamComponentRestore[el.id]){
             morphedEl = this.streamComponentRestore[el.id]
             delete this.streamComponentRestore[el.id]
-            morph.bind(this)(morphedEl, el)
+            morph.call(this, morphedEl, el, true)
           }
 
           return morphedEl
@@ -198,7 +202,7 @@ export default class DOMPatch {
           if(DOM.isPhxSticky(fromEl)){ return false }
           if(DOM.isIgnored(fromEl, phxUpdate) || (fromEl.form && fromEl.form.isSameNode(externalFormTriggered))){
             this.trackBefore("updated", fromEl, toEl)
-            DOM.mergeAttrs(fromEl, toEl, {isIgnored: true})
+            DOM.mergeAttrs(fromEl, toEl, {isIgnored: DOM.isIgnored(fromEl, phxUpdate)})
             updates.push(fromEl)
             DOM.applyStickyOperations(fromEl)
             return false
@@ -286,10 +290,18 @@ export default class DOMPatch {
         })
       }
 
-      morph.bind(this)(targetContainer, html)
+      morph.call(this, targetContainer, html)
     })
 
-    if(liveSocket.isDebugEnabled()){ detectDuplicateIds() }
+    if(liveSocket.isDebugEnabled()){
+      detectDuplicateIds()
+      // warn if there are any inputs named "id"
+      Array.from(document.querySelectorAll("input[name=id]")).forEach(node => {
+        if(node.form){
+          console.error("Detected an input with name=\"id\" inside a form! This will cause problems when patching the DOM.\n", node)
+        }
+      })
+    }
 
     if(appendPrependUpdates.length > 0){
       liveSocket.time("post-morph append/prepend restoration", () => {

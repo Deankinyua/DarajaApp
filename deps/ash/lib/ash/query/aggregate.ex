@@ -29,7 +29,7 @@ defmodule Ash.Query.Aggregate do
   @kinds [:count, :first, :sum, :list, :max, :min, :avg, :exists, :custom]
   @type kind :: unquote(Enum.reduce(@kinds, &{:|, [], [&1, &2]}))
 
-  alias Ash.Error.Query.{NoReadAction, NoSuchRelationship}
+  alias Ash.Error.Query.{AggregatesNotSupported, NoReadAction, NoSuchRelationship}
 
   require Ash.Query
 
@@ -56,7 +56,14 @@ defmodule Ash.Query.Aggregate do
   @schema [
     path: [
       type: {:list, :atom},
-      doc: "The relationship path to aggregate over. Only used when adding aggregates to a query."
+      doc:
+        "The relationship path to aggregate over. Only used when adding aggregates to a query.",
+      default: []
+    ],
+    agg_name: [
+      type: :any,
+      hide: true,
+      doc: "A resource calculation this calculation maps to."
     ],
     query: [
       type: :any,
@@ -64,8 +71,22 @@ defmodule Ash.Query.Aggregate do
         "A base query to use for the aggregate, or a keyword list to be passed to `Ash.Query.build/2`"
     ],
     field: [
-      type: :atom,
+      type: {:or, [:atom, {:struct, Ash.Query.Calculation}, {:struct, Ash.Query.Calculation}]},
       doc: "The field to use for the aggregate. Not necessary for all aggregate types."
+    ],
+    expr: [
+      type: :any,
+      doc: "An expression to aggregate, cannot be used with `field`."
+    ],
+    expr_type: [
+      type:
+        {:or,
+         [Ash.OptionsHelpers.ash_type(), {:tuple, [Ash.OptionsHelpers.ash_type(), :keyword_list]}]},
+      doc: "The type of the expression, required if `expr` is used."
+    ],
+    arguments: [
+      type: :map,
+      doc: "Arguments to pass to the field, if field is a calculation."
     ],
     default: [
       type: :any,
@@ -87,7 +108,8 @@ defmodule Ash.Query.Aggregate do
     ],
     constraints: [
       type: :any,
-      doc: "Type constraints to use for the aggregate."
+      doc: "Type constraints to use for the aggregate.",
+      default: []
     ],
     implementation: [
       type: :any,
@@ -139,6 +161,13 @@ defmodule Ash.Query.Aggregate do
     @keys
   end
 
+  schema = @schema
+
+  defmodule Opts do
+    @moduledoc false
+    use Spark.Options.Validator, schema: schema
+  end
+
   @doc """
   Create a new aggregate, used with `Query.aggregate` or `Ash.aggregate`
 
@@ -156,18 +185,18 @@ defmodule Ash.Query.Aggregate do
           false
       end)
 
-    with {:ok, opts} <- Spark.Options.validate(opts, @schema) do
-      related = Ash.Resource.Info.related(resource, opts[:path] || [])
+    with {:ok, %Opts{} = opts} <- Opts.validate(opts),
+         agg_name = agg_name(opts),
+         :ok <- validate_supported(resource, kind, agg_name) do
+      related = Ash.Resource.Info.related(resource, opts.path)
 
       query =
-        case opts[:query] || Ash.Query.new(related) do
+        case opts.query || Ash.Query.new(related) do
           %Ash.Query{} = query -> query
-          build_opts -> build_query(related, build_opts)
+          build_opts -> build_query(related, resource, build_opts)
         end
 
-      opts[:join_filters]
-      |> Kernel.||(%{})
-      |> Enum.reduce_while({:ok, %{}}, fn {path, filter}, {:ok, acc} ->
+      Enum.reduce_while(opts.join_filters, {:ok, %{}}, fn {path, filter}, {:ok, acc} ->
         case parse_join_filter(resource, path, filter) do
           {:ok, filter} ->
             {:cont, {:ok, Map.put(acc, path, filter)}}
@@ -178,18 +207,19 @@ defmodule Ash.Query.Aggregate do
       end)
       |> case do
         {:ok, join_filters} ->
-          relationship = opts[:path] || []
-          field = opts[:field]
-          default = opts[:default]
-          filterable? = opts[:filterable?]
-          sortable? = opts[:sortable?]
-          sensitive? = opts[:sensitive?]
-          type = opts[:type]
-          constraints = Keyword.get(opts, :constraints, [])
-          implementation = opts[:implementation]
-          uniq? = opts[:uniq?]
-          read_action = opts[:read_action]
-          authorize? = opts[:authorize?]
+          relationship = opts.path
+          field = opts.field
+          default = opts.default
+          filterable? = opts.filterable?
+          sortable? = opts.sortable?
+          sensitive? = opts.sensitive?
+          type = opts.type
+          constraints = opts.constraints
+          implementation = opts.implementation
+          uniq? = opts.uniq?
+          read_action = opts.read_action
+          authorize? = opts.authorize?
+          include_nil? = opts.include_nil?
 
           if kind == :custom && !type do
             raise ArgumentError, "Must supply type when building a `custom` aggregate"
@@ -201,17 +231,91 @@ defmodule Ash.Query.Aggregate do
 
           related = Ash.Resource.Info.related(resource, relationship)
 
-          attribute_type =
-            if field do
-              case Ash.Resource.Info.field(related, field) do
-                %{type: type, constraints: constraints} ->
-                  {:ok, type, constraints}
+          if opts.field && opts.expr do
+            raise ArgumentError, "Cannot supply both `field` and `expr` for an aggregate"
+          end
 
-                _ ->
-                  {:error, "No such field for #{inspect(related)}: #{inspect(field)}"}
+          {field, attribute_type, attribute_constraints} =
+            if opts.expr do
+              if is_nil(opts.expr_type) do
+                raise ArgumentError, "Must supply `expr_type` when using `expr`"
+              else
+                {expr_type, expr_constraints} =
+                  case opts.expr_type do
+                    {type, constraints} ->
+                      {type, constraints}
+
+                    type ->
+                      {type, []}
+                  end
+
+                name =
+                  if is_binary(name) or is_atom(name) do
+                    to_string(name)
+                  else
+                    inspect(name)
+                  end
+
+                {:ok, calc} =
+                  Ash.Query.Calculation.new(
+                    "#{name}_expr",
+                    Ash.Resource.Calculation.Expression,
+                    [expr: opts.expr],
+                    expr_type,
+                    expr_constraints,
+                    sensitive?: opts.sensitive?,
+                    sortable?: opts.sortable?,
+                    filterable?: opts.filterable?,
+                    calc_name: nil
+                  )
+
+                {calc, expr_type, expr_constraints}
               end
             else
-              {:ok, nil, constraints}
+              if field do
+                case field do
+                  %{type: type, constraints: constraints} ->
+                    {field, type, constraints}
+
+                  field when is_atom(field) ->
+                    case Ash.Resource.Info.field(related, field) do
+                      %{type: type, constraints: constraints} ->
+                        {field, type, constraints}
+
+                      %Ash.Resource.Aggregate{} = aggregate ->
+                        {:ok, type, constraints} = aggregate_type(related, aggregate)
+                        {field, type, constraints}
+
+                      _ ->
+                        raise "No such field for #{inspect(related)}: #{inspect(field)}"
+                    end
+                end
+              else
+                {field, nil, nil}
+              end
+            end
+
+          field =
+            case field do
+              %Ash.Query.Calculation{} = field ->
+                field
+
+              %Ash.Query.Aggregate{} = field ->
+                field
+
+              field when is_atom(field) ->
+                case Ash.Resource.Info.field(related, field) do
+                  %Ash.Resource.Calculation{} = calc ->
+                    calc =
+                      Ash.Query.Calculation.from_resource_calculation!(related, calc,
+                        args: opts.arguments || %{}
+                      )
+
+                    %{calc | load: field}
+
+                  _ ->
+                    field
+                end
             end
 
           default =
@@ -222,20 +326,20 @@ defmodule Ash.Query.Aggregate do
             end
 
           with :ok <- validate_uniq(uniq?, kind),
-               {:ok, attribute_type, attribute_constraints} <- attribute_type,
                :ok <- validate_path(resource, List.wrap(relationship)),
                {:ok, type, constraints} <-
                  get_type(kind, type, attribute_type, attribute_constraints, constraints),
-               %{valid?: true} = query <- build_query(related, query) do
+               %{valid?: true} = query <- build_query(related, resource, query) do
             {:ok,
              %__MODULE__{
                name: name,
-               agg_name: name,
+               agg_name: agg_name,
                resource: resource,
                constraints: constraints,
                default_value: default || default_value(kind),
                relationship_path: List.wrap(relationship),
                implementation: implementation,
+               include_nil?: include_nil?,
                field: field,
                kind: kind,
                type: type,
@@ -260,6 +364,25 @@ defmodule Ash.Query.Aggregate do
           {:error, error}
       end
     end
+  end
+
+  defp agg_name(opts) do
+    if :agg_name in opts.__set__ do
+      opts.agg_name
+    end
+  end
+
+  defp validate_supported(resource, kind, nil) do
+    if Ash.DataLayer.data_layer_can?(resource, {:aggregate, kind}) do
+      :ok
+    else
+      {:error, AggregatesNotSupported.exception(resource: resource, feature: "using")}
+    end
+  end
+
+  # resource aggregates can only exist if supported, so we don't need to check
+  defp validate_supported(_resource, _kind, _agg_name) do
+    :ok
   end
 
   defp parse_join_filter(resource, path, filter) do
@@ -301,6 +424,9 @@ defmodule Ash.Query.Aggregate do
   defp validate_uniq(_, _), do: :ok
 
   defp get_type(:custom, type, _, _attribute_constraints, provided_constraints),
+    do: {:ok, type, provided_constraints || []}
+
+  defp get_type(_, type, _, _attribute_constraints, provided_constraints) when not is_nil(type),
     do: {:ok, type, provided_constraints || []}
 
   defp get_type(kind, _, attribute_type, attribute_constraints, provided_constraints) do
@@ -377,9 +503,9 @@ defmodule Ash.Query.Aggregate do
   def default_value(:custom), do: nil
 
   @doc false
-  def build_query(resource, nil), do: Ash.Query.new(resource)
+  def build_query(resource, _parent, nil), do: Ash.Query.new(resource)
 
-  def build_query(resource, build_opts) when is_list(build_opts) do
+  def build_query(resource, parent, build_opts) when is_list(build_opts) do
     cond do
       build_opts[:limit] ->
         Ash.Query.add_error(resource, "Cannot set limit on aggregate query")
@@ -388,9 +514,13 @@ defmodule Ash.Query.Aggregate do
         Ash.Query.add_error(resource, "Cannot set offset on aggregate query")
 
       true ->
+        {filter, build_opts} = Keyword.pop(build_opts, :filter)
+
         case Ash.Query.build(resource, build_opts) do
           %{valid?: true} = query ->
-            build_query(resource, query)
+            resource
+            |> build_query(parent, query)
+            |> Ash.Query.do_filter(filter, parent_stack: [parent])
 
           %{valid?: false} = query ->
             query
@@ -398,7 +528,7 @@ defmodule Ash.Query.Aggregate do
     end
   end
 
-  def build_query(_resource, %Ash.Query{} = query) do
+  def build_query(_resource, _parent, %Ash.Query{} = query) do
     cond do
       query.limit ->
         Ash.Query.add_error(query, "Cannot set limit on aggregate query")
@@ -487,5 +617,25 @@ defmodule Ash.Query.Aggregate do
         fn str, _ -> str end
       )
     end
+  end
+
+  defp aggregate_type(resource, aggregate) do
+    attribute =
+      if aggregate.field do
+        related = Ash.Resource.Info.related(resource, aggregate.relationship_path)
+        Ash.Resource.Info.attribute(related, aggregate.field)
+      end
+
+    attribute_type =
+      if attribute do
+        attribute.type
+      end
+
+    attribute_constraints =
+      if attribute do
+        attribute.constraints
+      end
+
+    Ash.Query.Aggregate.kind_to_type(aggregate.kind, attribute_type, attribute_constraints)
   end
 end

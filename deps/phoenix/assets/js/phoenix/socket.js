@@ -118,7 +118,7 @@ export default class Socket {
     this.primaryPassedHealthCheck = false
     this.longPollFallbackMs = opts.longPollFallbackMs
     this.fallbackTimer = null
-    this.sessionStore = opts.sessionStorage || global.sessionStorage
+    this.sessionStore = opts.sessionStorage || (global && global.sessionStorage)
     this.establishedConnections = 0
     this.defaultEncoder = Serializer.encode.bind(Serializer)
     this.defaultDecoder = Serializer.decode.bind(Serializer)
@@ -376,7 +376,7 @@ export default class Socket {
 
     errorRef = this.onError(reason => {
       this.log("transport", "error", reason)
-      if(primaryTransport && !established) {
+      if(primaryTransport && !established){
         clearTimeout(this.fallbackTimer)
         fallback(reason)
       }

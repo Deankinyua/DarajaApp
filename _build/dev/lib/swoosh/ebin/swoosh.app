@@ -1,5 +1,5 @@
 {application,swoosh,
-             [{config_mtime,1719649741},
+             [{config_mtime,1729332000},
               {optional_applications,[hackney,finch,req,mail,gen_smtp,mua,
                                       cowboy,plug,plug_cowboy,bandit,
                                       multipart,ex_aws]},
@@ -29,6 +29,7 @@
                         'Elixir.Swoosh.Adapters.Mua',
                         'Elixir.Swoosh.Adapters.Mua.MultihostError',
                         'Elixir.Swoosh.Adapters.OhMySmtp',
+                        'Elixir.Swoosh.Adapters.Postal',
                         'Elixir.Swoosh.Adapters.Postmark',
                         'Elixir.Swoosh.Adapters.ProtonBridge',
                         'Elixir.Swoosh.Adapters.SMTP',
@@ -59,7 +60,7 @@
                         'Elixir.Swoosh.TestAssertions',
                         'Elixir.Swoosh.X.TestAssertions']},
               {registered,[]},
-              {vsn,"1.16.9"},
+              {vsn,"1.17.2"},
               {mod,{'Elixir.Swoosh.Application',[]}},
               {env,[{json_library,'Elixir.Jason'},
                     {api_client,'Elixir.Swoosh.ApiClient.Hackney'}]}]}.

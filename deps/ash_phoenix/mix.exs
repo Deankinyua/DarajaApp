@@ -5,7 +5,7 @@ defmodule AshPhoenix.MixProject do
   Utilities for integrating Ash and Phoenix
   """
 
-  @version "2.0.2"
+  @version "2.1.6"
 
   def project do
     [
@@ -128,10 +128,10 @@ defmodule AshPhoenix.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:ash, ash_version("~> 3.0")},
+      {:ash, ash_version("~> 3.0 and >= 3.4.31")},
       {:phoenix, "~> 1.5.6 or ~> 1.6"},
       {:phoenix_html, "~> 4.0"},
-      {:phoenix_live_view, "~> 0.20.3 or ~> 1.0"},
+      {:phoenix_live_view, "~> 0.20.3 or ~> 1.0 or ~> 1.0.0-rc.1"},
       {:simple_sat, "~> 0.1", only: [:dev, :test]},
       {:git_ops, "~> 2.5", only: [:dev, :test]},
       {:ex_doc, "~> 0.32", only: [:dev, :test], override: true},
@@ -139,7 +139,8 @@ defmodule AshPhoenix.MixProject do
       {:credo, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:dialyxir, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:sobelow, ">= 0.0.0", only: [:dev, :test], runtime: false},
-      {:mix_audit, ">= 0.0.0", only: [:dev, :test], runtime: false}
+      {:mix_audit, ">= 0.0.0", only: [:dev, :test], runtime: false},
+      {:mix_test_watch, "~> 1.0", only: [:dev, :test]}
     ]
   end
 

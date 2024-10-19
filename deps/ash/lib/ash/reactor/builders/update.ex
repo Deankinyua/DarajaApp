@@ -16,6 +16,8 @@ defimpl Reactor.Dsl.Build, for: Ash.Reactor.Dsl.Update do
         arguments
         |> maybe_append(update.actor)
         |> maybe_append(update.tenant)
+        |> maybe_append(update.load)
+        |> maybe_append(update.context)
         |> Enum.concat(update.wait_for)
         |> Enum.concat([%Argument{name: :initial, source: update.initial}])
 
@@ -39,10 +41,6 @@ defimpl Reactor.Dsl.Build, for: Ash.Reactor.Dsl.Update do
       )
     end
   end
-
-  @doc false
-  @impl true
-  def transform(_update, dsl_state), do: {:ok, dsl_state}
 
   @doc false
   @impl true

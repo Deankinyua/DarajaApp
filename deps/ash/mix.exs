@@ -6,7 +6,7 @@ defmodule Ash.MixProject do
   A declarative, extensible framework for building Elixir applications.
   """
 
-  @version "3.0.9"
+  @version "3.4.33"
 
   def project do
     [
@@ -72,10 +72,12 @@ defmodule Ash.MixProject do
         "documentation/topics/advanced/multitenancy.md",
         "documentation/topics/advanced/writing-extensions.md",
         "documentation/topics/development/project-structure.md",
+        "documentation/topics/development/generators.md",
         "documentation/topics/development/error-handling.md",
         "documentation/topics/development/testing.md",
         "documentation/topics/development/development-utilities.md",
         "documentation/topics/development/upgrading-to-3.0.md",
+        "documentation/moved/upgrade.md",
         "documentation/topics/security/actors-and-authorization.md",
         "documentation/topics/security/sensitive-data.md",
         "documentation/topics/security/policies.md",
@@ -86,13 +88,13 @@ defmodule Ash.MixProject do
         "documentation/how-to/encrypt-attributes.livemd",
         "documentation/how-to/prevent-concurrent-writes.livemd",
         "documentation/how-to/wrap-external-apis.livemd",
-        "documentation/dsls/DSL:-Ash.Resource.md",
-        "documentation/dsls/DSL:-Ash.Domain.md",
-        "documentation/dsls/DSL:-Ash.Notifier.PubSub.md",
-        "documentation/dsls/DSL:-Ash.Policy.Authorizer.md",
-        "documentation/dsls/DSL:-Ash.DataLayer.Ets.md",
-        "documentation/dsls/DSL:-Ash.DataLayer.Mnesia.md",
-        "documentation/dsls/DSL:-Ash.Reactor.md",
+        "documentation/dsls/DSL-Ash.Resource.md",
+        "documentation/dsls/DSL-Ash.Domain.md",
+        "documentation/dsls/DSL-Ash.Notifier.PubSub.md",
+        "documentation/dsls/DSL-Ash.Policy.Authorizer.md",
+        "documentation/dsls/DSL-Ash.DataLayer.Ets.md",
+        "documentation/dsls/DSL-Ash.DataLayer.Mnesia.md",
+        "documentation/dsls/DSL-Ash.Reactor.md",
         "CHANGELOG.md"
       ],
       groups_for_extras: [
@@ -114,9 +116,11 @@ defmodule Ash.MixProject do
         Reference: [
           ~r"documentation/topics/reference",
           ~r"documentation/dsls"
+        ],
+        Moved: [
+          ~r"documentation/moved"
         ]
       ],
-      assets: %{"livebook.css" => "documentation/assets/livebook.css"},
       skip_undefined_reference_warnings_on: [
         "CHANGELOG.md",
         "documentation/topics/reference/glossary.md",
@@ -131,14 +135,18 @@ defmodule Ash.MixProject do
         Ash.Resource.Verifiers,
         Ash.Query.Function,
         Ash.Query.Operator,
-        Ash.Resource.Change,
         Ash.Resource.Validation,
+        Ash.Resource.Change,
         Ash.Policy.Check
       ],
       before_closing_head_tag: fn type ->
         if type == :html do
           """
-          <link rel="stylesheet" href="assets/livebooks.css">
+          <style>
+            .livebook-badge-container + pre {
+              display: none;
+            }
+          </style>
           <script>
             if (location.hostname === "hexdocs.pm") {
               var script = document.createElement("script");
@@ -183,10 +191,12 @@ defmodule Ash.MixProject do
           Ash.Query.Calculation,
           Ash.Query.Aggregate
         ],
-        Changesets: [
+        Changes: [
           Ash.Changeset,
           Ash.Resource.Change,
-          Ash.Resource.Change.Builtins,
+          Ash.Resource.Change.Builtins
+        ],
+        Validations: [
           Ash.Resource.Validation,
           Ash.Resource.Validation.Builtins
         ],
@@ -227,6 +237,7 @@ defmodule Ash.MixProject do
           Ash.Vector,
           Ash.Union,
           Ash.UUID,
+          Ash.UUIDv7,
           Ash.NotLoaded,
           Ash.ForbiddenField,
           Ash.Changeset.ManagedRelationshipHelpers,
@@ -329,19 +340,18 @@ defmodule Ash.MixProject do
   defp deps do
     [
       # DSLs
-      {:spark, "~> 2.1 and >= 2.1.18"},
+      {:spark, "~> 2.1 and >= 2.2.29"},
       # Ash resources are backed by ecto scheams
       {:ecto, "~> 3.7"},
       # Used by the ETS data layer
       {:ets, "~> 0.8"},
       # Data & types
       {:decimal, "~> 2.0"},
-      {:comparable, "~> 1.0"},
       {:jason, ">= 1.0.0"},
       # Observability
       {:telemetry, "~> 1.1"},
       # Used for providing Ash.Reactor, will be used more in the future
-      {:reactor, "~> 0.8 and >= 0.8.1"},
+      {:reactor, "~> 0.9"},
       # Used for Ash.PlugHelpers
       {:plug, ">= 0.0.0", optional: true},
       # Used for aggregatable and standardized exceptions
@@ -352,6 +362,12 @@ defmodule Ash.MixProject do
       # SAT Solvers
       {:picosat_elixir, "~> 0.2", optional: true},
       {:simple_sat, "~> 0.1 and >= 0.1.1", optional: true},
+
+      # Code Generators
+      {:igniter, "~> 0.3 and >= 0.3.61"},
+
+      # IO Utilities
+      {:owl, "~> 0.11"},
 
       # Dev/Test dependencies
       {:eflame, "~> 1.0", only: [:dev, :test]},

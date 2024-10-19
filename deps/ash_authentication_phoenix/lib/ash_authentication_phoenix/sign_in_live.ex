@@ -37,6 +37,8 @@ defmodule AshAuthentication.Phoenix.SignInLive do
       |> assign(:reset_path, session["reset_path"])
       |> assign(:register_path, session["register_path"])
       |> assign(:current_tenant, session["tenant"])
+      |> assign(:context, session["context"] || %{})
+      |> assign(:auth_routes_prefix, session["auth_routes_prefix"])
 
     {:ok, socket}
   end
@@ -57,11 +59,13 @@ defmodule AshAuthentication.Phoenix.SignInLive do
         otp_app={@otp_app}
         live_action={@live_action}
         path={@path}
+        auth_routes_prefix={@auth_routes_prefix}
         reset_path={@reset_path}
         register_path={@register_path}
         id={override_for(@overrides, :sign_in_id, "sign-in")}
         overrides={@overrides}
         current_tenant={@current_tenant}
+        context={@context}
       />
     </div>
     """

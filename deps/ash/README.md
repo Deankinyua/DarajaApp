@@ -81,6 +81,7 @@ Welcome! Here you will find everything you need to know to get started with and 
 ### Development
 
 - [Project Structure](documentation/topics/development/project-structure.md)
+- [Generators](documentation/topics/development/generators.md)
 - [Testing](documentation/topics/development/testing.md)
 - [Development Utilities](documentation/topics/development/development-utilities.md)
 - [Upgrading to 3.0](documentation/topics/development/upgrading-to-3.0.md)
@@ -110,13 +111,13 @@ Welcome! Here you will find everything you need to know to get started with and 
 
 - [Glossary](documentation/topics/reference/glossary.md)
 - [Expressions](documentation/topics/reference/expressions.md)
-- [Ash.Resource DSL](documentation/dsls/DSL:-Ash.Resource.md)
-- [Ash.Domain DSL](documentation/dsls/DSL:-Ash.Domain.md)
-- [Ash.Reactor DSL](documentation/dsls/DSL:-Ash.Reactor.md)
-- [Ash.Notifier.PubSub DSL](documentation/dsls/DSL:-Ash.Notifier.PubSub.md)
-- [Ash.Policy.Authorizer DSL](documentation/dsls/DSL:-Ash.Policy.Authorizer.md)
-- [Ash.DataLayer.Ets DSL](documentation/dsls/DSL:-Ash.DataLayer.Ets.md)
-- [Ash.DataLayer.Mnesia DSL](documentation/dsls/DSL:-Ash.DataLayer.Mnesia.md)
+- [Ash.Resource DSL](documentation/dsls/DSL-Ash.Resource.md)
+- [Ash.Domain DSL](documentation/dsls/DSL-Ash.Domain.md)
+- [Ash.Reactor DSL](documentation/dsls/DSL-Ash.Reactor.md)
+- [Ash.Notifier.PubSub DSL](documentation/dsls/DSL-Ash.Notifier.PubSub.md)
+- [Ash.Policy.Authorizer DSL](documentation/dsls/DSL-Ash.Policy.Authorizer.md)
+- [Ash.DataLayer.Ets DSL](documentation/dsls/DSL-Ash.DataLayer.Ets.md)
+- [Ash.DataLayer.Mnesia DSL](documentation/dsls/DSL-Ash.DataLayer.Mnesia.md)
 - For other reference documentation, see the sidebar & search bar
 
 ## Packages

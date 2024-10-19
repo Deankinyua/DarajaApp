@@ -27,6 +27,58 @@ defmodule Ash.Filter.Runtime do
   def filter_matches(_domain, records, nil, _opts), do: {:ok, records}
 
   def filter_matches(domain, records, filter, opts) do
+    {records, parent} = load_records_and_parent(records, domain, opts[:parent], filter, opts)
+
+    Enum.reduce_while(records, {:ok, []}, fn record, {:ok, records} ->
+      case matches(record, filter, Keyword.put(opts, :parent, parent)) do
+        {:ok, falsey} when falsey in [false, nil] ->
+          {:cont, {:ok, records}}
+
+        {:ok, _} ->
+          {:cont, {:ok, [record | records]}}
+
+        {:error, error} ->
+          {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:ok, records} ->
+        {:ok, Enum.reverse(records)}
+
+      other ->
+        other
+    end
+  end
+
+  defp load_parent(nil, _, _, _), do: nil
+  defp load_parent([], _, _, _), do: []
+
+  defp load_parent([parent | rest], domain, filter, opts) do
+    filter =
+      filter
+      |> Ash.Filter.flat_map(fn
+        %Ash.Query.Parent{expr: expr} ->
+          [expr]
+
+        _ ->
+          []
+      end)
+
+    {parent, rest} =
+      load_records_and_parent(
+        parent,
+        domain,
+        rest,
+        filter,
+        Keyword.put(opts, :parent_loaded?, true)
+      )
+
+    [parent | rest]
+  end
+
+  defp load_parent(value, domain, filter, opts), do: load_parent([value], domain, filter, opts)
+
+  defp load_records_and_parent(records, domain, parent, filter, opts) do
     resource =
       case records do
         %resource{} ->
@@ -54,30 +106,22 @@ defmodule Ash.Filter.Runtime do
             |> load_all(refs_to_load)
             |> Ash.Query.set_context(%{private: %{internal?: true}})
 
-          Ash.load!(records, load, authorize?: false, domain: domain)
+          Ash.load!(records, load,
+            authorize?: false,
+            domain: domain,
+            tenant: opts[:tenant],
+            actor: opts[:actor]
+          )
       end
 
-    Enum.reduce_while(records, {:ok, []}, fn record, {:ok, records} ->
-      matches = matches(record, filter, Keyword.put(opts, :parent_loaded?, true))
-
-      case matches do
-        {:ok, falsey} when falsey in [false, nil] ->
-          {:cont, {:ok, records}}
-
-        {:ok, _} ->
-          {:cont, {:ok, [record | records]}}
-
-        {:error, error} ->
-          {:halt, {:error, error}}
+    parent =
+      if opts[:parent_loaded?] do
+        parent
+      else
+        load_parent(parent, domain, filter, opts)
       end
-    end)
-    |> case do
-      {:ok, records} ->
-        {:ok, Enum.reverse(records)}
 
-      other ->
-        other
-    end
+    {records, parent}
   end
 
   defp matches(record, expression, opts) do
@@ -88,7 +132,14 @@ defmodule Ash.Filter.Runtime do
     record
     |> flatten_relationships(relationship_paths)
     |> Enum.reduce_while({:ok, false}, fn scenario, {:ok, false} ->
-      case do_match(scenario, expression, opts[:parent], nil, opts[:unknown_on_unknown_refs?]) do
+      case do_match(
+             scenario,
+             expression,
+             opts[:parent],
+             nil,
+             opts[:unknown_on_unknown_refs?],
+             opts[:conflicting_upsert_values]
+           ) do
         {:error, error} ->
           {:halt, {:error, error}}
 
@@ -159,7 +210,9 @@ defmodule Ash.Filter.Runtime do
         parent \\ nil,
         resource \\ nil,
         domain \\ nil,
-        unknown_on_unknown_refs? \\ false
+        unknown_on_unknown_refs? \\ false,
+        actor \\ nil,
+        tenant \\ nil
       ) do
     if domain && record do
       refs_to_load =
@@ -180,7 +233,12 @@ defmodule Ash.Filter.Runtime do
               |> load_all(refs)
               |> Ash.Query.set_context(%{private: %{internal?: true}})
 
-            Ash.load!(record, load, domain: domain, authorize?: false)
+            Ash.load!(record, load,
+              domain: domain,
+              authorize?: false,
+              tenant: tenant,
+              actor: actor
+            )
         end
 
       do_match(record, expression, parent, resource, unknown_on_unknown_refs?)
@@ -195,7 +253,8 @@ defmodule Ash.Filter.Runtime do
         expression,
         parent \\ nil,
         resource \\ nil,
-        unknown_on_unknown_refs? \\ false
+        unknown_on_unknown_refs? \\ false,
+        conflicting_upsert_values \\ nil
       )
 
   def do_match(
@@ -203,22 +262,38 @@ defmodule Ash.Filter.Runtime do
         %Ash.Filter.Simple{predicates: predicates},
         parent,
         resource,
-        unknown_on_unknown_refs?
+        unknown_on_unknown_refs?,
+        conflicting_upsert_values
       ) do
     {:ok,
      Enum.all?(predicates, fn predicate ->
-       do_match(record, predicate, parent, resource, unknown_on_unknown_refs?) == {:ok, true}
+       do_match(
+         record,
+         predicate,
+         parent,
+         resource,
+         unknown_on_unknown_refs?,
+         conflicting_upsert_values
+       ) == {:ok, true}
      end)}
   end
 
-  def do_match(record, expression, parent, resource, unknown_on_unknown_refs?) do
+  def do_match(
+        record,
+        expression,
+        parent,
+        resource,
+        unknown_on_unknown_refs?,
+        conflicting_upsert_values
+      ) do
     hydrated =
       case record do
         %resource{} ->
           Ash.Filter.hydrate_refs(expression, %{
             resource: resource,
             public?: false,
-            parent_stack: parent_stack(parent)
+            parent_stack: parent_stack(parent),
+            conflicting_upsert_values: conflicting_upsert_values
           })
 
         _ ->
@@ -226,7 +301,8 @@ defmodule Ash.Filter.Runtime do
             Ash.Filter.hydrate_refs(expression, %{
               resource: resource,
               public?: false,
-              parent_stack: parent_stack(parent)
+              parent_stack: parent_stack(parent),
+              conflicting_upsert_values: conflicting_upsert_values
             })
           else
             {:ok, expression}
@@ -422,11 +498,11 @@ defmodule Ash.Filter.Runtime do
          _resource,
          unknown_on_unknown_refs?
        )
-       when is_nil(parent) do
+       when is_nil(parent) or parent == [] do
     if unknown_on_unknown_refs? do
       :unknown
     else
-      nil
+      {:ok, nil}
     end
   end
 
@@ -449,6 +525,16 @@ defmodule Ash.Filter.Runtime do
          unknown_on_unknown_refs?
        ) do
     resolve_expr(expr, parent, rest, resource, unknown_on_unknown_refs?)
+  end
+
+  defp resolve_expr(
+         %Ash.Query.UpsertConflict{} = expr,
+         _record,
+         _parent,
+         _resource,
+         _unknown_on_unknown_refs?
+       ) do
+    {:error, "#{inspect(expr)} not implemented for data source"}
   end
 
   defp resolve_expr(%Ash.Query.Exists{}, nil, _parent, _resource, unknown_on_unknown_refs?) do
@@ -743,25 +829,43 @@ defmodule Ash.Filter.Runtime do
          unknown_on_unknown_refs?
        ) do
     result =
-      if load do
-        case Map.get(record || %{}, load) do
-          %Ash.NotLoaded{} ->
+      record
+      |> get_related(relationship_path, unknown_on_unknown_refs?)
+      |> case do
+        :unknown ->
+          if unknown_on_unknown_refs? do
             :unknown
+          else
+            {:ok, nil}
+          end
 
-          %Ash.ForbiddenField{} ->
-            :unknown
+        [] ->
+          {:ok, nil}
 
-          other ->
-            {:ok, other}
-        end
-      else
-        case Map.fetch(Map.get(record || %{}, :calculations, %{}), name) do
-          {:ok, value} ->
-            {:ok, value}
+        [record | _] ->
+          if load do
+            case Map.fetch(record || %{}, load) do
+              :error ->
+                :unknown
 
-          :error ->
-            :unknown
-        end
+              {:ok, %Ash.NotLoaded{}} ->
+                :unknown
+
+              {:ok, %Ash.ForbiddenField{}} ->
+                :unknown
+
+              {:ok, other} ->
+                {:ok, other}
+            end
+          else
+            case Map.fetch(Map.get(record || %{}, :calculations, %{}), name) do
+              {:ok, value} ->
+                {:ok, value}
+
+              :error ->
+                :unknown
+            end
+          end
       end
 
     case result do
@@ -1217,9 +1321,17 @@ defmodule Ash.Filter.Runtime do
     end
   end
 
-  defp parent_stack(nil), do: []
-  defp parent_stack(%resource{}), do: [resource]
-  defp parent_stack(value) when is_list(value), do: value
+  defp parent_stack(parent) do
+    parent
+    |> List.wrap()
+    |> Enum.map(fn
+      %resource{} ->
+        resource
+
+      resource ->
+        resource
+    end)
+  end
 
   defp evaluate(
          %{__function__?: true} = func,

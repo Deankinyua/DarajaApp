@@ -1,6 +1,6 @@
 defmodule Tailwind do
   # https://github.com/tailwindlabs/tailwindcss/releases
-  @latest_version "3.2.7"
+  @latest_version "3.4.6"
 
   @moduledoc """
   Tailwind is an installer and runner for [tailwind](https://tailwindcss.com/).
@@ -27,6 +27,10 @@ defmodule Tailwind do
   There are two global configurations for the tailwind application:
 
     * `:version` - the expected tailwind version
+
+    * `:version_check` - whether to perform the version check or not.
+      Useful when you manage the tailwind executable with an external
+      tool (eg. npm)
 
     * `:cacerts_path` - the directory to find certificates for
       https connections
@@ -68,28 +72,30 @@ defmodule Tailwind do
 
   @doc false
   def start(_, _) do
-    unless Application.get_env(:tailwind, :version) do
-      Logger.warn("""
-      tailwind version is not configured. Please set it in your config files:
+    if Application.get_env(:tailwind, :version_check, true) do
+      unless Application.get_env(:tailwind, :version) do
+        Logger.warning("""
+        tailwind version is not configured. Please set it in your config files:
 
-          config :tailwind, :version, "#{latest_version()}"
-      """)
-    end
-
-    configured_version = configured_version()
-
-    case bin_version() do
-      {:ok, ^configured_version} ->
-        :ok
-
-      {:ok, version} ->
-        Logger.warn("""
-        Outdated tailwind version. Expected #{configured_version}, got #{version}. \
-        Please run `mix tailwind.install` or update the version in your config files.\
+            config :tailwind, :version, "#{latest_version()}"
         """)
+      end
 
-      :error ->
-        :ok
+      configured_version = configured_version()
+
+      case bin_version() do
+        {:ok, ^configured_version} ->
+          :ok
+
+        {:ok, version} ->
+          Logger.warning("""
+          Outdated tailwind version. Expected #{configured_version}, got #{version}. \
+          Please run `mix tailwind.install` or update the version in your config files.\
+          """)
+
+        :error ->
+          :ok
+      end
     end
 
     Supervisor.start_link([], strategy: :one_for_one)
@@ -261,7 +267,7 @@ defmodule Tailwind do
     end
   end
 
-  defp fetch_body!(url) do
+  defp fetch_body!(url, retry \\ true) do
     scheme = URI.parse(url).scheme
     url = String.to_charlist(url)
     Logger.debug("Downloading tailwind from #{url}")
@@ -295,9 +301,15 @@ defmodule Tailwind do
 
     options = [body_format: :binary]
 
-    case :httpc.request(:get, {url, []}, http_options, options) do
-      {:ok, {{_, 200, _}, _headers, body}} ->
+    case {retry, :httpc.request(:get, {url, []}, http_options, options)} do
+      {_, {:ok, {{_, 200, _}, _headers, body}}} ->
         body
+
+      {true, {:error, {:failed_connect, [{:to_address, _}, {inet, _, reason}]}}}
+      when inet in [:inet, :inet6] and
+             reason in [:ehostunreach, :enetunreach, :eprotonosupport, :nxdomain] ->
+        :httpc.set_options(ipfamily: fallback(inet))
+        fetch_body!(url, false)
 
       other ->
         raise """
@@ -317,6 +329,9 @@ defmodule Tailwind do
         """
     end
   end
+
+  defp fallback(:inet), do: :inet6
+  defp fallback(:inet6), do: :inet
 
   defp proxy_for_scheme("http") do
     System.get_env("HTTP_PROXY") || System.get_env("http_proxy")

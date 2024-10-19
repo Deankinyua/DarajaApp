@@ -15,7 +15,7 @@ defmodule Example.Activation do
       define :create_ambassador, action: :create
       define :list_ambassadors, action: :read
       define :update_ambassador, action: :update
-      define :get_ambassador, args: [:id], action: :by_id
+      define :get_ambassador, args: [:ambassador_id], action: :by_id
       define :destroy_ambassador, action: :destroy
     end
   end

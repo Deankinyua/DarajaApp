@@ -20,12 +20,19 @@ defmodule Ash.Query.Operator.Basic do
     div: [
       symbol: :/,
       no_nils: true,
-      evaluate_types: :numbers
+      evaluate_types: :numbers,
+      returns: [:float]
     ],
     concat: [
       symbol: :<>,
       no_nils: true,
-      types: [[:string, :string]]
+      types: [
+        [:string, :string],
+        [:ci_string, :ci_string],
+        [:string, :ci_string],
+        [:ci_string, :string]
+      ],
+      returns: [:string, :ci_string, :ci_string, :ci_string]
     ],
     or: [
       symbol: :||
@@ -52,7 +59,8 @@ defmodule Ash.Query.Operator.Basic do
           operator: unquote(opts[:symbol]),
           name: unquote(name),
           predicate?: false,
-          types: unquote(opts[:types] || [:same, :any])
+          returns: unquote(opts[:returns] || [:same]),
+          types: unquote(opts[:types] || [[:same, :any]])
 
         if unquote(opts[:no_nils]) do
           @impl Ash.Query.Operator
@@ -161,6 +169,10 @@ defmodule Ash.Query.Operator.Basic do
 
         defp do_evaluate(:>=, left, right) do
           {:known, Comp.greater_or_equal?(left, right)}
+        end
+
+        defp do_evaluate(:==, left, right) do
+          {:known, Comp.equal?(left, right)}
         end
 
         defp do_evaluate(op, left, right)

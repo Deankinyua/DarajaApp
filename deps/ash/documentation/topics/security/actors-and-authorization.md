@@ -35,7 +35,7 @@ MyDomain.create_post!(Post, authorize?: true)
 > # DO THIS
 >
 > Post
-> |> Ash.Query.for_read(:read, actor: current_user)
+> |> Ash.Query.for_read(:read, %{}, actor: current_user)
 > |> Ash.read!()
 >
 > # DON'T DO THIS
@@ -47,11 +47,11 @@ MyDomain.create_post!(Post, authorize?: true)
 
 ## Default value of `authorize?`
 
-The default value of `authorize?` is determined by by the `authorization` configuration of the relevant domain. By default, `authorize?` is set to `true` (and so can be ommitted in all of the examples above). If a resource has no authorizers, then all requests will be allowed.
+The default value of `authorize?` is determined by the `authorization` configuration of the relevant domain. By default, `authorize?` is set to `true` (and so can be ommitted in all of the examples above). If a resource has no authorizers, then all requests will be allowed.
 
 ## Authorizers
 
-Authorizers are in control of what happens during authorization. Generally, you won't need to create your own  authorizer, as the builtin policy authorizer `Ash.Policy.Authorizer` works well for any use case. See the [Policies guide](documentation/topics/security/policies.md) for more.
+Authorizers are in control of what happens during authorization. Generally, you won't need to create your own authorizer, as the builtin policy authorizer `Ash.Policy.Authorizer` works well for any use case. See the [Policies guide](documentation/topics/security/policies.md) for more.
 
 ## Domain Authorization Configuration
 
@@ -67,4 +67,4 @@ When to run authorization for a given request.
 
 - `:by_default` sets `authorize?: true` if the `authorize?` option was not set (so it can be set to `false`). This is the default.
 - `:always` forces `authorize?: true` on all requests to the domain.
-- `:when_requested` sets `authorize?: true` whenever an actor is set or `authorize?: true` is explicitly passed. This is the default behavior.
+- `:when_requested` sets `authorize?: true` whenever an actor is set or `authorize?: true` is explicitly passed.

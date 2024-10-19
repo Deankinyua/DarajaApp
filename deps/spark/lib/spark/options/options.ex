@@ -39,6 +39,11 @@ defmodule Spark.Options do
           The message will be displayed as a warning when passing the item.
           """
         ],
+        private?: [
+          type: :boolean,
+          default: false,
+          doc: "Defines an option as private, used with `Spark.Options.Validator`"
+        ],
         hide: [
           type: {:wrap_list, :atom},
           doc: """
@@ -104,12 +109,13 @@ defmodule Spark.Options do
   @moduledoc """
   Provides a standard API to handle keyword-list-based options.
 
-  This module began its life as a vendored form of `NimbleOptions`.
+  This module began its life as a vendored form of `NimbleOptions`,
+  meaning that we copied it from `NimbleOptions` into `Spark`.
   We had various features to add to it, and the spirit of nimble
   options is to be as lightweight as possible. With that in mind,
-  we were advised to vendor `NimbleOptions`. We would like to
-  thank the authors of `NimbleOptions` for their excellent work,
-  and their blessing to transplant their work into Spark.
+  we were advised to vendor it. We would like to thank the authors
+  of `NimbleOptions` for their excellent work, and their blessing
+  to transplant their work into Spark.
 
   `Spark.Options` allows developers to create schemas using a
   pre-defined set of options and types. The main benefits are:
@@ -117,9 +123,9 @@ defmodule Spark.Options do
     * A single unified way to define simple static options
     * Config validation against schemas
     * Automatic doc generation
-
-
-  Spark also uses this to power entity and section schemas.
+    * More types over what is provided by `NimbleOptions`
+    * Compile time validators that are highly optimized and produce structs. See `Spark.Options.Validator`.
+    * Shared logic between Spark DSLs and options lists.
 
   ## Schema Options
 
@@ -200,6 +206,8 @@ defmodule Spark.Options do
     * `{:behaviour, behaviour}` - expects a module that implements a given behaviour.
 
     * `{:protocol, protocol}` - expects a value for which the protocol is implemented.
+
+    * `{:impl, protocol}` - expects a module for which the protocol is implemented.
 
     * `{:spark, dsl_module}` - expects a module that is a `Spark.Dsl`
 
@@ -417,6 +425,7 @@ defmodule Spark.Options do
           | {:spark_function_behaviour, module, module, {module, integer}}
           | {:behaviour, module}
           | {:protocol, module}
+          | {:impl, module}
           | {:spark, module}
           | {:mfa_or_fun, non_neg_integer()}
           | {:spark_type, module, builtin_function :: atom}
@@ -433,6 +442,7 @@ defmodule Spark.Options do
           | {:required, boolean}
           | {:default, any}
           | {:keys, schema}
+          | {:private?, boolean}
           | {:deprecated, String.t()}
           | {:doc, String.t()}
           | {:subsection, String.t() | nil}
@@ -566,6 +576,7 @@ defmodule Spark.Options do
 
   def docs(schema, options) when is_list(schema) and is_list(options) do
     schema
+    |> Keyword.new()
     |> Enum.reject(fn {_key, opts} ->
       opts[:hide]
     end)
@@ -577,6 +588,7 @@ defmodule Spark.Options do
 
   def docs(%Spark.Options{schema: schema}, options) when is_list(options) do
     schema
+    |> Keyword.new()
     |> Enum.reject(fn {_key, opts} ->
       opts[:hide]
     end)
@@ -596,6 +608,22 @@ defmodule Spark.Options do
 
   defp document_values(opts) do
     case opts[:type] do
+      {in_type, range}
+      when in_type in [:in, :one_of] and is_struct(range, Range) and range.step > 0 ->
+        Keyword.update!(
+          opts,
+          :doc,
+          &"#{&1} Valid values are between #{range.first} and #{range.last}"
+        )
+
+      {in_type, range}
+      when in_type in [:in, :one_of] and is_struct(range, Range) and range.step < 0 ->
+        Keyword.update!(
+          opts,
+          :doc,
+          &"#{&1} Valid values are between #{range.last} and #{range.first}"
+        )
+
       {in_type, values} when in_type in [:in, :one_of] ->
         values = Enum.map_join(values, ", ", &inspect/1)
 
@@ -663,7 +691,6 @@ defmodule Spark.Options do
       @type option() :: {:int, integer()} | {:number, integer() | float()}
 
   """
-  @doc since: "0.5.0"
   @spec option_typespec(schema() | t()) :: Macro.t()
   def option_typespec(schema)
 
@@ -698,79 +725,70 @@ defmodule Spark.Options do
   end
 
   defp validate_options_with_schema_and_path(opts, schema, path) when is_list(opts) do
-    schema = expand_star_to_option_keys(schema, opts)
+    case validate_options(schema, opts) do
+      {:ok, options} ->
+        {:ok, options}
 
-    with :ok <- validate_unknown_options(opts, schema),
-         {:ok, options} <- validate_options(schema, opts) do
-      {:ok, options}
-    else
       {:error, %ValidationError{} = error} ->
         {:error, %ValidationError{error | keys_path: path ++ error.keys_path}}
     end
   end
 
-  defp validate_unknown_options(opts, schema) do
-    valid_opts = Keyword.keys(schema)
-
-    case Keyword.keys(opts) -- valid_opts do
-      [] ->
-        :ok
-
-      keys ->
-        error_tuple(
-          keys,
-          nil,
-          "unknown options #{inspect(keys)}, valid options are: #{inspect(valid_opts)}"
-        )
-    end
-  end
-
   defp validate_options(schema, opts) do
-    case Enum.reduce_while(schema, opts, &reduce_options/2) do
-      {:error, %ValidationError{}} = result -> result
-      result -> {:ok, result}
-    end
-  end
-
-  defp reduce_options({key, schema_opts}, opts) do
-    case validate_option(opts, key, schema_opts) do
-      {:error, %ValidationError{}} = result ->
-        {:halt, result}
-
-      {:ok, value} ->
-        {:cont, Keyword.update(opts, key, value, fn _ -> value end)}
-
-      :no_value ->
-        if Keyword.has_key?(schema_opts, :default) do
-          opts_with_default = Keyword.put(opts, key, schema_opts[:default])
-          reduce_options({key, schema_opts}, opts_with_default)
+    {required, defaults} =
+      Enum.reduce(schema, {[], []}, fn {key, opts}, {required, defaults} ->
+        if opts[:required] do
+          {[key | required], defaults}
         else
-          {:cont, opts}
-        end
-    end
-  end
+          case Keyword.fetch(opts, :default) do
+            {:ok, default} ->
+              case validate_type(opts[:type], key, default) do
+                {:ok, default} ->
+                  {required, [{key, default} | defaults]}
 
-  defp validate_option(opts, key, schema) do
-    with {:ok, value} <- validate_value(opts, key, schema),
-         {:ok, value} <- validate_type(schema[:type], key, value) do
-      if nested_schema = schema[:keys] do
-        validate_options_with_schema_and_path(value, nested_schema, _path = [key])
+                {:error, error} ->
+                  raise ArgumentError,
+                        "Invalid spec, default value #{inspect(default)} for #{key} is invalid: #{inspect(error)}"
+              end
+
+            :error ->
+              {required, defaults}
+          end
+        end
+      end)
+
+    Enum.reduce_while(opts, {:ok, [], required}, fn {key, value}, {:ok, validated, required} ->
+      with {:ok, value, option_schema} <- validate_value(schema, opts, key, value),
+           {:ok, value} <- validate_type(option_schema[:type], key, value) do
+        new_required = required -- [key]
+
+        if nested_schema = option_schema[:keys] do
+          case validate_options_with_schema_and_path(value, nested_schema, _path = [key]) do
+            {:ok, value} ->
+              {:cont, {:ok, [{key, value} | validated], new_required}}
+
+            {:error, error} ->
+              {:halt, {:error, error}}
+          end
+        else
+          {:cont, {:ok, [{key, value} | validated], new_required}}
+        end
       else
-        {:ok, value}
+        other ->
+          {:halt, other}
       end
-    end
-  end
+    end)
+    |> case do
+      {:ok, validated, []} ->
+        case defaults do
+          [] ->
+            {:ok, Enum.reverse(validated)}
 
-  defp validate_value(opts, key, schema) do
-    cond do
-      Keyword.has_key?(opts, key) ->
-        if message = Keyword.get(schema, :deprecated) do
-          IO.warn("#{render_key(key)} is deprecated. " <> message)
+          _ ->
+            {:ok, Enum.reverse(Keyword.merge(defaults, validated))}
         end
 
-        {:ok, opts[key]}
-
-      Keyword.get(schema, :required, false) ->
+      {:ok, _validated, [key | _]} ->
         error_tuple(
           key,
           nil,
@@ -778,9 +796,47 @@ defmodule Spark.Options do
             inspect(Keyword.keys(opts))
         )
 
-      true ->
-        :no_value
+      {:error, error} ->
+        {:error, error}
     end
+  end
+
+  defp validate_value(schema, opts, key, value) do
+    case Keyword.fetch(schema, key) do
+      {:ok, schema} ->
+        if message = Keyword.get(schema, :deprecated) do
+          IO.warn("#{render_key(key)} is deprecated. " <> message)
+        end
+
+        {:ok, value, schema}
+
+      :error ->
+        case Keyword.fetch(schema, :*) do
+          :error ->
+            if Keyword.get(schema, :required, false) do
+              error_tuple(
+                key,
+                nil,
+                "required #{render_key(key)} not found, received options: " <>
+                  inspect(Keyword.keys(opts))
+              )
+            else
+              error_tuple(
+                [key],
+                nil,
+                "unknown options #{inspect([key])}, valid options are: #{inspect(Keyword.keys(schema))}"
+              )
+            end
+
+          {:ok, default} ->
+            {:ok, value, default}
+        end
+    end
+  end
+
+  @doc false
+  def validate_single_value(type, key, value) do
+    validate_type(type, key, value)
   end
 
   defp validate_type(:integer, key, value) when not is_integer(value) do
@@ -1125,12 +1181,13 @@ defmodule Spark.Options do
     error_tuple(key, value, "expected tagged tuple in #{render_key(key)}, got: #{inspect(value)}")
   end
 
-  defp validate_type({:spark_behaviour, _module}, _key, value) when is_atom(value) do
+  defp validate_type({:spark_behaviour, _module}, _key, value)
+       when is_atom(value) and not is_boolean(value) do
     {:ok, {value, []}}
   end
 
   defp validate_type({:spark_behaviour, _module}, _key, {module, opts})
-       when is_atom(module) and is_list(opts) do
+       when is_atom(module) and not is_boolean(module) and is_list(opts) do
     {:ok, {module, opts}}
   end
 
@@ -1142,12 +1199,13 @@ defmodule Spark.Options do
     )
   end
 
-  defp validate_type({:spark_behaviour, _module, _}, _key, value) when is_atom(value) do
+  defp validate_type({:spark_behaviour, _module, _}, _key, value)
+       when is_atom(value) and not is_boolean(value) do
     {:ok, {value, []}}
   end
 
   defp validate_type({:spark_behaviour, _module, _}, _key, {module, opts})
-       when is_atom(module) and is_list(opts) do
+       when is_atom(module) and not is_boolean(module) do
     {:ok, {module, opts}}
   end
 
@@ -1173,6 +1231,34 @@ defmodule Spark.Options do
 
     UndefinedFunctionError ->
       error_tuple(key, value, "expected `#{inspect(protocol)}` to be a protocol")
+  end
+
+  defp validate_type({:impl, protocol}, key, value) do
+    protocol.__info__(:module)
+    Protocol.assert_protocol!(protocol)
+    Protocol.assert_impl!(protocol, value)
+    {:ok, value}
+  rescue
+    UndefinedFunctionError ->
+      error_tuple(key, value, "#{inspect(protocol)} is not a protocol")
+
+    e in ArgumentError ->
+      message = Exception.message(e)
+
+      cond do
+        String.contains?(message, "reason :nofile") ->
+          error_tuple(
+            key,
+            value,
+            "protocol #{inspect(protocol)} is not implemented by #{inspect(value)}"
+          )
+
+        String.contains?(message, "not an atom") ->
+          error_tuple(key, value, "expected module in #{render_key(key)}, got: #{inspect(value)}")
+
+        true ->
+          error_tuple(key, value, message)
+      end
   end
 
   defp validate_type({type, _}, _key, value)
@@ -1387,16 +1473,6 @@ defmodule Spark.Options do
     is_list(value) and Enum.all?(value, &match?({key, _value} when is_atom(key), &1))
   end
 
-  defp expand_star_to_option_keys(keys, opts) do
-    case keys[:*] do
-      nil ->
-        keys
-
-      schema_opts ->
-        Enum.map(opts, fn {k, _} -> {k, schema_opts} end)
-    end
-  end
-
   defp available_types do
     types =
       Enum.map(@basic_types, &inspect/1) ++
@@ -1503,6 +1579,8 @@ defmodule Spark.Options do
   end
 
   def validate_type({:protocol, module}) when is_atom(module), do: {:ok, {:protocol, module}}
+
+  def validate_type({:impl, module}) when is_atom(module), do: {:ok, {:impl, module}}
 
   def validate_type({:spark_behaviour, module}) when is_atom(module) do
     {:ok, {:spark_behaviour, module}}
@@ -1626,10 +1704,11 @@ defmodule Spark.Options do
     {:error, %ValidationError{key: key, message: message, value: value}}
   end
 
-  defp render_key({__MODULE__, :key}), do: "map key"
-  defp render_key({__MODULE__, :value, key}), do: "map key #{inspect(key)}"
-  defp render_key({__MODULE__, :tuple, index}), do: "tuple element at position #{index}"
-  defp render_key({__MODULE__, :list, index}), do: "list element at position #{index}"
-  defp render_key({__MODULE__, :tagged_tuple_value, _key}), do: "tagged tuple elem 1"
-  defp render_key(key), do: inspect(key) <> " option"
+  @doc false
+  def render_key({__MODULE__, :key}), do: "map key"
+  def render_key({__MODULE__, :value, key}), do: "map key #{inspect(key)}"
+  def render_key({__MODULE__, :tuple, index}), do: "tuple element at position #{index}"
+  def render_key({__MODULE__, :list, index}), do: "list element at position #{index}"
+  def render_key({__MODULE__, :tagged_tuple_value, _key}), do: "tagged tuple elem 1"
+  def render_key(key), do: inspect(key) <> " option"
 end

@@ -15,13 +15,15 @@ defmodule Ash.Query.Function.GetPath do
 
   Available in query expressions using bracket syntax, e.g `foo[:bar][:baz]`.
   """
-  use Ash.Query.Function, name: :get_path, predicate?: true, no_inspect?: true
+  use Ash.Query.Function, name: :get_path, no_inspect?: true
 
   def args,
     do: [
       [:map, {:array, :any}],
       [:map, :any]
     ]
+
+  def returns, do: [:any, :any]
 
   def new([%__MODULE__{arguments: [inner_left, inner_right]} = get_path, right])
       when is_list(inner_right) and is_list(right) do

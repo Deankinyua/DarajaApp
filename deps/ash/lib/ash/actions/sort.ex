@@ -44,19 +44,14 @@ defmodule Ash.Actions.Sort do
             {sorts, [UnsortableField.exception(resource: resource, field: name) | errors]}
 
           calc ->
-            {module, opts} = calc.calculation
+            {module, _opts} = calc.calculation
 
-            Code.ensure_compiled!(module)
-
-            if function_exported?(module, :expression, 2) do
+            if module.has_expression?() do
               if Ash.DataLayer.data_layer_can?(resource, :expression_calculation_sort) do
                 calculation_sort(
+                  resource,
                   field,
                   calc,
-                  module,
-                  opts,
-                  calc.type,
-                  calc.constraints,
                   order,
                   sorts,
                   errors,
@@ -83,8 +78,34 @@ defmodule Ash.Actions.Sort do
             {ref_attribute, field_name} =
               case attribute do
                 atom when is_atom(attribute) ->
-                  {Ash.Resource.Info.field(Ash.Resource.Info.related(resource, path), attribute),
-                   atom}
+                  case Ash.Resource.Info.related(resource, path) do
+                    nil ->
+                      raise Ash.Error.Framework.AssumptionFailed,
+                        message: """
+                        Listing refs in #{inspect(expr)}:
+
+                        Found reference #{inspect(attribute)} at path #{inspect(path)}
+
+                        No related resource at path #{inspect(path)} from #{inspect(resource)}
+                        """
+
+                    related ->
+                      case Ash.Resource.Info.field(related, attribute) do
+                        nil ->
+                          raise Ash.Error.Framework.AssumptionFailed,
+                            message: """
+                            Listing refs in #{inspect(expr)}:
+
+                            Found reference #{inspect(attribute)} at path #{inspect(path)}
+
+                            Related resource at path #{inspect(path)} from #{inspect(resource)}
+                            does not have field #{inspect(atom)}
+                            """
+
+                        field ->
+                          {field, atom}
+                      end
+                  end
 
                 %struct{} = attribute
                 when struct in [Ash.Query.Aggregate, Ash.Query.Calculation] ->
@@ -157,17 +178,14 @@ defmodule Ash.Actions.Sort do
 
           calc = Ash.Resource.Info.calculation(resource, field) ->
             if calc.sortable? do
-              {module, opts} = calc.calculation
+              {module, _} = calc.calculation
 
               if module.has_expression?() do
                 if Ash.DataLayer.data_layer_can?(resource, :expression_calculation_sort) do
                   calculation_sort(
+                    resource,
                     field,
                     calc,
-                    module,
-                    opts,
-                    calc.type,
-                    calc.constraints,
                     order,
                     sorts,
                     errors,
@@ -309,12 +327,9 @@ defmodule Ash.Actions.Sort do
   end
 
   defp calculation_sort(
+         resource,
          field,
          calc,
-         module,
-         opts,
-         type,
-         constraints,
          order,
          sorts,
          errors,
@@ -335,24 +350,14 @@ defmodule Ash.Actions.Sort do
           {other, %{}}
       end
 
-    with {:ok, input} <- Ash.Query.validate_calculation_arguments(calc, calc_context),
-         {:ok, calc} <-
-           Ash.Query.Calculation.new(
-             field,
-             module,
-             opts,
-             type,
-             constraints,
-             arguments: input,
-             filterable?: calc.filterable?,
-             sortable?: calc.sortable?,
-             sensitive?: calc.sensitive?,
-             load: calc.load,
-             source_context: context || %{}
-           ) do
-      calc = Map.put(calc, :load, field)
-      {sorts ++ [{calc, order}], errors}
-    else
+    case Ash.Query.Calculation.from_resource_calculation(resource, calc,
+           source_context: context || %{},
+           args: calc_context
+         ) do
+      {:ok, calc} ->
+        calc = Map.put(calc, :load, field)
+        {sorts ++ [{calc, order}], errors}
+
       {:error, error} ->
         {sorts, [error | errors]}
     end
@@ -381,6 +386,10 @@ defmodule Ash.Actions.Sort do
   end
 
   def runtime_sort(results, [{field, direction} | rest], opts) do
+    # we need check if the field supports simple equality, and if so then we can use
+    # uniq_by
+    #
+    # otherwise, we need to do our own matching
     resource = get_resource(results, opts)
 
     results
@@ -425,16 +434,18 @@ defmodule Ash.Actions.Sort do
   def runtime_distinct(results, empty, _) when empty in [nil, []], do: results
   def runtime_distinct([single_result], _, _), do: [single_result]
 
-  def runtime_distinct([%resource{} | _] = results, [{field, direction} | rest], opts) do
+  def runtime_distinct([%resource{} | _] = results, distinct, opts) do
+    # we need check if the field supports simple equality, and if so then we can use
+    # uniq_by
+    #
+    # otherwise, we need to do our own matching
+    fields = Enum.map(distinct, &elem(&1, 0))
+
     results
-    |> load_field(field, resource, opts)
-    |> Enum.group_by(&resolve_field(&1, field))
-    |> Enum.sort_by(fn {key, _value} -> key end, to_sort_by_fun(direction))
-    |> Enum.map(fn {_key, [first | _]} ->
-      first
-    end)
-    |> runtime_distinct(rest, Keyword.put(opts, :rekey?, false))
-    |> maybe_rekey(results, resource, Keyword.get(opts, :rekey?, true))
+    |> load_field(fields, resource, opts)
+    |> Enum.to_list()
+    |> runtime_sort(distinct, opts)
+    |> Enum.uniq_by(&Map.take(&1, fields))
   end
 
   defp load_field(records, field, resource, opts) do

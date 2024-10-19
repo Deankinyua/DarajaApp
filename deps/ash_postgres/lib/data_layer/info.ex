@@ -42,8 +42,15 @@ defmodule AshPostgres.DataLayer.Info do
   @doc "Gets the resource's repo's postgres version"
   def min_pg_version(resource) do
     case repo(resource, :read).min_pg_version() do
-      %Version{} = version -> version
-      string when is_binary(string) -> Version.parse!(string)
+      %Version{} = version ->
+        version
+
+      string when is_binary(string) ->
+        IO.warn(
+          "Got a `string` for min_pg_version, expected a `Version` struct. Got: #{inspect(string)}. Please call `Version.parse!` before returning the value."
+        )
+
+        Version.parse!(string)
     end
   end
 
@@ -76,6 +83,11 @@ defmodule AshPostgres.DataLayer.Info do
   @doc "A keyword list of customized migration types"
   def migration_types(resource) do
     Extension.get_opt(resource, [:postgres], :migration_types, [])
+  end
+
+  @doc "A keyword list of customized storage types"
+  def storage_types(resource) do
+    Extension.get_opt(resource, [:postgres], :storage_types, [])
   end
 
   @doc "A keyword list of customized migration defaults"

@@ -62,6 +62,7 @@ defmodule Spark.Dsl.Entity do
 
   For a full example, see `Spark.Dsl.Extension`.
   """
+
   defstruct [
     :name,
     :target,
@@ -225,6 +226,13 @@ defmodule Spark.Dsl.Entity do
       other ->
         other
     end)
+  end
+
+  @doc false
+  def required_arg_names(entity) do
+    entity.args
+    |> Kernel.||([])
+    |> Enum.filter(&is_atom/1)
   end
 
   @doc false

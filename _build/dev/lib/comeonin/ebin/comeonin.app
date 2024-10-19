@@ -1,5 +1,5 @@
 {application,comeonin,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332001},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir,logger]},
               {description,"A specification for password hashing libraries"},
@@ -7,4 +7,4 @@
                         'Elixir.Comeonin.BehaviourTestHelper',
                         'Elixir.Comeonin.PasswordHash']},
               {registered,[]},
-              {vsn,"5.4.0"}]}.
+              {vsn,"5.5.0"}]}.

@@ -2,14 +2,14 @@ defmodule AshAuthentication.Phoenix.MixProject do
   @moduledoc false
   use Mix.Project
 
-  @version "2.0.0"
+  @version "2.1.9"
 
   def project do
     [
       app: :ash_authentication_phoenix,
       version: @version,
       description: "Phoenix integration for Ash Authentication",
-      elixir: "~> 1.14",
+      elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
       preferred_cli_env: [ci: :test],
       aliases: aliases(),
@@ -25,9 +25,13 @@ defmodule AshAuthentication.Phoenix.MixProject do
         main: "readme",
         extras: [
           "README.md",
-          "documentation/tutorials/get-started.md",
-          "documentation/tutorials/liveview.md"
+          {"documentation/tutorials/get-started.md", title: "Get Started"},
+          {"documentation/tutorials/liveview.md", title: "LiveView Routes"},
+          {"documentation/tutorials/ui-overrides.md", title: "UI Overrides"}
         ],
+        redirects: %{
+          "getting-started-with-ash-authentication-phoenix" => "get-started"
+        },
         groups_for_extras: [
           Tutorials: ~r'documentation/tutorials',
           "How To": ~r'documentation/how_to',
@@ -50,7 +54,9 @@ defmodule AshAuthentication.Phoenix.MixProject do
             """
           end
         end,
-        filter_modules: ~r/^Elixir.AshAuthentication.Phoenix/,
+        filter_modules: fn module, _ ->
+          String.match?(to_string(module), ~r/^Elixir.AshAuthentication.Phoenix/) || String.match?(to_string(module), ~r/^Elixir.Mix.Tasks/)
+        end,
         source_url_pattern:
           "https://github.com/team-alembic/ash_authentication_phoenix/blob/main/%{path}#L%{line}",
         groups_for_modules: [
@@ -109,7 +115,7 @@ defmodule AshAuthentication.Phoenix.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:ash_authentication, "~> 4.0"},
+      {:ash_authentication, "~> 4.1"},
       {:ash_phoenix, "~> 2.0"},
       {:ash, "~> 3.0"},
       {:jason, "~> 1.0"},
@@ -120,6 +126,7 @@ defmodule AshAuthentication.Phoenix.MixProject do
       {:phoenix, "~> 1.6"},
       {:bcrypt_elixir, "~> 3.0"},
       {:slugify, "~> 1.3"},
+      {:igniter, "~> 0.3 and >= 0.3.62"},
       {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.2", only: [:dev, :test], runtime: false},
       {:doctor, "~> 0.18", only: [:dev, :test]},
@@ -131,7 +138,8 @@ defmodule AshAuthentication.Phoenix.MixProject do
       {:mimic, "~> 1.7", only: [:dev, :test]},
       {:mix_audit, "~> 2.1", only: [:dev, :test]},
       {:plug_cowboy, "~> 2.5", only: [:dev, :test]},
-      {:sobelow, "~> 0.13", only: [:dev, :test]}
+      {:sobelow, "~> 0.13", only: [:dev, :test]},
+      {:floki, ">= 0.30.0", only: :test}
     ]
   end
 
@@ -140,12 +148,19 @@ defmodule AshAuthentication.Phoenix.MixProject do
       ci: [
         "format --check-formatted",
         "doctor --full --raise",
-        "credo --strict",
+        "credo",
         "dialyzer",
         "hex.audit",
         "test"
       ],
-      docs: ["docs", "spark.replace_doc_links"]
+      credo: "credo --strict",
+      sobelow: "sobelow --skip",
+      docs: [
+        "compile",
+        fn _ -> AshAuthenticationPhoenix.Overrides.List.write_docs!() end,
+        "docs",
+        "spark.replace_doc_links"
+      ]
     ]
   end
 

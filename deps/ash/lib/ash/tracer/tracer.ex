@@ -8,6 +8,7 @@ defmodule Ash.Tracer do
           | :changeset
           | :query
           | :flow
+          | :calculate
           | :request_step
           | :change
           | :validation
@@ -50,18 +51,19 @@ defmodule Ash.Tracer do
   @optional_callbacks set_error: 2, set_error: 1, trace_type?: 1, set_handled_error: 2
 
   defmacro span(type, name, tracer, block_opts \\ []) do
-    quote do
+    quote generated: true do
       type = unquote(type)
       name = unquote(name)
+
       tracer = List.wrap(unquote(tracer))
       tracer = Enum.filter(tracer, &Ash.Tracer.trace_type?(&1, type))
-
-      Ash.Tracer.start_span(tracer, type, name)
 
       # no need to use try/rescue/after if no tracers
       if Enum.empty?(tracer) do
         unquote(block_opts[:do])
       else
+        Ash.Tracer.start_span(tracer, type, name)
+
         try do
           unquote(block_opts[:do])
         rescue
@@ -75,34 +77,48 @@ defmodule Ash.Tracer do
     end
   end
 
-  defmacro telemetry_span(name, metadata, opts) do
-    quote do
-      telemetry_name = unquote(name)
-      metadata = unquote(metadata)
+  defmacro telemetry_span(name, metadata, opts \\ [], block_opts) do
+    quote generated: true do
+      if unquote(opts[:skip?]) do
+        unquote(block_opts[:do])
+      else
+        telemetry_name = unquote(name)
 
-      start = System.monotonic_time()
+        metadata = unquote(metadata)
 
-      compiling? = Code.can_await_module_compilation?()
+        compiling? = Code.can_await_module_compilation?()
 
-      unless compiling? do
-        :telemetry.execute(
-          telemetry_name ++ [:start],
-          %{system_time: System.system_time()},
-          metadata
-        )
-      end
+        metadata =
+          unless compiling? do
+            case :telemetry.list_handlers(telemetry_name) do
+              [] -> %{}
+              _ when is_function(metadata) -> apply(metadata, [])
+              _ -> metadata
+            end
+          end
 
-      try do
-        unquote(opts[:do])
-      after
-        duration = System.monotonic_time() - start
+        start = System.monotonic_time()
 
         unless compiling? do
           :telemetry.execute(
-            telemetry_name ++ [:stop],
-            %{system_time: System.system_time(), duration: duration},
+            telemetry_name ++ [:start],
+            %{system_time: System.system_time()},
             metadata
           )
+        end
+
+        try do
+          unquote(block_opts[:do])
+        after
+          duration = System.monotonic_time() - start
+
+          unless compiling? do
+            :telemetry.execute(
+              telemetry_name ++ [:stop],
+              %{system_time: System.system_time(), duration: duration},
+              metadata
+            )
+          end
         end
       end
     end
@@ -129,10 +145,12 @@ defmodule Ash.Tracer do
   def start_span(nil, _type, _name), do: :ok
 
   def start_span(tracers, type, name) when is_list(tracers) do
+    name = resolve_lazy(name)
     Enum.each(tracers, &start_span(&1, type, name))
   end
 
   def start_span(tracer, type, name) do
+    name = resolve_lazy(name)
     tracer.start_span(type, name)
   end
 
@@ -201,16 +219,28 @@ defmodule Ash.Tracer do
   def set_metadata(nil, _type, _metadata), do: :ok
 
   def set_metadata(tracers, type, metadata) when is_list(tracers) do
-    Enum.each(tracers, &set_metadata(&1, type, metadata))
+    tracers = Enum.filter(tracers, &Ash.Tracer.trace_type?(&1, type))
+
+    unless Enum.empty?(tracers) do
+      metadata = resolve_lazy(metadata)
+      Enum.each(tracers, & &1.set_metadata(type, metadata))
+    end
   end
 
   def set_metadata(tracer, type, metadata) do
-    tracer.set_metadata(type, metadata)
+    if Ash.Tracer.trace_type?(tracer, type) do
+      metadata = resolve_lazy(metadata)
+      tracer.set_metadata(type, metadata)
+    end
   end
 
   defmacro __using__(_) do
     quote do
       @behaviour Ash.Tracer
     end
+  end
+
+  defp resolve_lazy(value) do
+    if is_function(value), do: apply(value, []), else: value
   end
 end

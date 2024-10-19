@@ -21,8 +21,9 @@ defmodule Ecto.Adapters.MyXQL do
     * `:password` - User password
     * `:database` - the database to connect to
     * `:pool` - The connection pool module, may be set to `Ecto.Adapters.SQL.Sandbox`
-    * `:ssl` - Set to true if ssl should be used (default: false)
-    * `:ssl_opts` - A list of ssl options, see Erlang's `ssl` docs
+    * `:ssl` - Accepts a list of options to enable TLS for the client connection,
+      or `false` to disable it. See the documentation for [Erlang's `ssl` module](`e:ssl:ssl`)
+      for a list of options (default: false)
     * `:connect_timeout` - The timeout for establishing new connections (default: 5000)
     * `:cli_protocol` - The protocol used for the mysql client connection (default: `"tcp"`).
       This option is only used for `mix ecto.load` and `mix ecto.dump`,
@@ -174,8 +175,7 @@ defmodule Ecto.Adapters.MyXQL do
 
   @impl true
   def storage_up(opts) do
-    database =
-      Keyword.fetch!(opts, :database) || raise ":database is nil in repository configuration"
+    database = Keyword.fetch!(opts, :database)
 
     opts = Keyword.delete(opts, :database)
     charset = opts[:charset] || "utf8mb4"
@@ -213,8 +213,7 @@ defmodule Ecto.Adapters.MyXQL do
 
   @impl true
   def storage_down(opts) do
-    database =
-      Keyword.fetch!(opts, :database) || raise ":database is nil in repository configuration"
+    database = Keyword.fetch!(opts, :database)
 
     opts = Keyword.delete(opts, :database)
     command = "DROP DATABASE `#{database}`"
@@ -242,8 +241,7 @@ defmodule Ecto.Adapters.MyXQL do
 
   @impl Ecto.Adapter.Storage
   def storage_status(opts) do
-    database =
-      Keyword.fetch!(opts, :database) || raise ":database is nil in repository configuration"
+    database = Keyword.fetch!(opts, :database)
 
     opts = Keyword.delete(opts, :database)
 

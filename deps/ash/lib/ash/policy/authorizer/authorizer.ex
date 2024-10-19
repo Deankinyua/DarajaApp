@@ -11,12 +11,34 @@ defmodule Ash.Policy.Authorizer do
     :scenarios,
     :real_scenarios,
     :check_scenarios,
+    :subject,
+    :for_fields,
+    :solver_statement,
+    context: %{},
     policies: [],
     facts: %{true => true, false => false},
     data_facts: %{}
   ]
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{
+          actor: term,
+          resource: Ash.Resource.t(),
+          query: Ash.Query.t() | nil,
+          changeset: Ash.Changeset.t() | nil,
+          action_input: Ash.ActionInput.t() | nil,
+          subject: Ash.Query.t() | Ash.Changeset.t() | Ash.ActionInput.t(),
+          context: map,
+          data: term,
+          solver_statement: term,
+          action: Ash.Resource.Actions.Action.t(),
+          domain: Ash.Domain.t(),
+          scenarios: [map],
+          real_scenarios: [map],
+          check_scenarios: [map],
+          policies: [term],
+          facts: map(),
+          data_facts: map()
+        }
 
   require Ash.Expr
   require Ash.Sort
@@ -28,6 +50,7 @@ defmodule Ash.Policy.Authorizer do
       type:
         {:or,
          [
+           {:custom, __MODULE__, :template_var, []},
            {:spark_behaviour, Ash.Policy.Check, Ash.Policy.Check.Builtins},
            {:custom, __MODULE__, :expr_check, []}
          ]},
@@ -159,7 +182,7 @@ defmodule Ash.Policy.Authorizer do
         """
       ]
     ],
-    args: [:condition],
+    args: [{:optional, :condition}],
     target: Ash.Policy.Policy,
     no_depend_modules: [:condition],
     transform: {Ash.Policy.Policy, :transform, []},
@@ -169,6 +192,63 @@ defmodule Ash.Policy.Authorizer do
         @forbid_if,
         @authorize_unless,
         @forbid_unless
+      ]
+    ]
+  }
+
+  @policy_group %Spark.Dsl.Entity{
+    name: :policy_group,
+    target: Ash.Policy.PolicyGroup,
+    transform: {Ash.Policy.PolicyGroup, :transform, []},
+    describe: """
+    Groups a set of policies together by some condition.
+
+    If the condition on the policy group does not apply, then none of the policies within it apply.
+
+    This is primarily syntactic sugar. At compile time, the conditions from the policy group are
+    added to each policy it contains, and the list is flattened out. This exists primarily to make it
+    easier to reason about and write policies.
+
+    The following are equivalent:
+
+    ```elixir
+    policy_group condition1 do
+      policy condition2 do
+        ...
+      end
+
+      policy condition3 do
+        ...
+      end
+    end
+    ```
+
+    and
+
+    ```elixir
+    policy [condition1, condition2] do
+      ...
+    end
+
+    policy [condition1, condition3] do
+      ...
+    end
+    ```
+    """,
+    schema: [
+      condition: [
+        type: {:custom, __MODULE__, :validate_condition, []},
+        doc: """
+        A check or list of checks that must be true in order for this policy to apply.
+        """
+      ]
+    ],
+    args: [:condition],
+    no_depend_modules: [:condition],
+    recursive_as: :policies,
+    entities: [
+      policies: [
+        @policy
       ]
     ]
   }
@@ -216,6 +296,7 @@ defmodule Ash.Policy.Authorizer do
     ],
     entities: [
       @policy,
+      @policy_group,
       @bypass
     ],
     imports: [
@@ -255,7 +336,7 @@ defmodule Ash.Policy.Authorizer do
           "A check or list of checks that must be true in order for this field policy to apply. If not specified, it always applies."
       ]
     ],
-    args: [:fields, {:optional, :condition, {Ash.Policy.Check.Static, result: true}}],
+    args: [:fields, {:optional, :condition}],
     target: Ash.Policy.FieldPolicy,
     transform: {Ash.Policy.FieldPolicy, :transform, []},
     entities: [
@@ -337,6 +418,15 @@ defmodule Ash.Policy.Authorizer do
     entities: [
       @field_policy_bypass,
       @field_policy
+    ],
+    schema: [
+      private_fields: [
+        type: {:one_of, [:show, :hide, :include]},
+        default: Application.compile_env(:ash, :policies)[:private_fields] || :show,
+        doc: """
+        How private fields should be handeled by field policies in internal functions. See the [Policies guide](documentation/topics/security/policies.md#field-policies) for more.
+        """
+      ]
     ]
   }
 
@@ -374,7 +464,7 @@ defmodule Ash.Policy.Authorizer do
 
   require Logger
 
-  @behaviour Ash.Authorizer
+  use Ash.Authorizer
 
   @transformers [
     Ash.Policy.Authorizer.Transformers.AddMissingFieldPolicies,
@@ -382,7 +472,8 @@ defmodule Ash.Policy.Authorizer do
   ]
 
   @verifiers [
-    Ash.Policy.Authorizer.Verifiers.VerifyInAuthorizers
+    Ash.Policy.Authorizer.Verifiers.VerifyInAuthorizers,
+    Ash.Policy.Authorizer.Verifiers.VerifySatSolverImplementation
   ]
 
   use Spark.Dsl.Extension,
@@ -394,10 +485,14 @@ defmodule Ash.Policy.Authorizer do
   def exception({:changeset_doesnt_match_filter, filter}, state) do
     Ash.Error.Forbidden.Policy.exception(
       scenarios: Map.get(state, :scenarios),
+      solver_statement: Map.get(state, :solver_statement),
       facts: Map.get(state, :facts),
       policies: Map.get(state, :policies),
+      subject: Map.get(state, :subject),
       resource: Map.get(state, :resource),
       action: Map.get(state, :action),
+      actor: Map.get(state, :actor),
+      domain: Map.get(state, :domain),
       changeset_doesnt_match_filter: true,
       filter: filter
     )
@@ -407,9 +502,13 @@ defmodule Ash.Policy.Authorizer do
     Ash.Error.Forbidden.Policy.exception(
       scenarios: Map.get(state, :scenarios),
       facts: Map.get(state, :facts),
+      solver_statement: Map.get(state, :solver_statement),
+      domain: Map.get(state, :domain),
+      subject: Map.get(state, :subject),
       policies: Map.get(state, :policies),
       resource: Map.get(state, :resource),
       action: Map.get(state, :action),
+      actor: Map.get(state, :actor),
       must_pass_strict_check?: true
     )
   end
@@ -417,11 +516,57 @@ defmodule Ash.Policy.Authorizer do
   def exception(_, state) do
     Ash.Error.Forbidden.Policy.exception(
       scenarios: Map.get(state, :scenarios),
+      domain: Map.get(state, :domain),
+      solver_statement: Map.get(state, :solver_statement),
       facts: Map.get(state, :facts),
+      subject: Map.get(state, :subject),
       policies: Map.get(state, :policies),
       resource: Map.get(state, :resource),
       action: Map.get(state, :action),
+      actor: Map.get(state, :actor),
       must_pass_strict_check?: true
+    )
+  end
+
+  def install(igniter, module, type, _path, argv) do
+    yes = "--yes" in argv or "-y" in argv
+
+    igniter =
+      with nil <- Igniter.Project.Deps.get_dependency_declaration(igniter, :picosat_elixir),
+           nil <- Igniter.Project.Deps.get_dependency_declaration(igniter, :simple_sat) do
+        solver =
+          if yes do
+            {:picosat_elixir, "~> 0.2"}
+          else
+            Owl.IO.select(
+              [
+                {:picosat_elixir, "~> 0.2"},
+                {:simple_sat, "~> 0.1"}
+              ],
+              label: """
+              Ash.Policy.Authorizer requires a SAT solver. Which would you like to use?
+
+              1. `:picosat_elixir` (recommended) - A NIF wrapper around the PicoSAT SAT solver. Fast, production ready, battle tested.
+              2. `:simple_sat` - A pure Elixir SAT solver. Slower than PicoSAT, but no NIF dependency.
+              """,
+              render_as: &to_string(elem(&1, 0))
+            )
+          end
+
+        igniter
+        |> Igniter.Project.Deps.add_dep(solver, yes?: yes)
+        |> Igniter.apply_and_fetch_dependencies(yes: yes)
+      else
+        _ ->
+          igniter
+      end
+
+    igniter
+    |> Spark.Igniter.add_extension(
+      module,
+      type,
+      :authorizers,
+      Ash.Policy.Authorizer
     )
   end
 
@@ -471,7 +616,7 @@ defmodule Ash.Policy.Authorizer do
 
   @impl true
   def check_context(_authorizer) do
-    [:query, :changeset, :data, :domain, :resource]
+    [:query, :changeset, :data, :domain, :resource, :action_input]
   end
 
   @impl true
@@ -481,11 +626,15 @@ defmodule Ash.Policy.Authorizer do
 
   @impl true
   def strict_check(authorizer, context) do
+    subject = context.query || context.changeset || context[:action_input]
+
     %{
       authorizer
       | query: context.query,
         changeset: context.changeset,
         action_input: context[:action_input],
+        subject: subject,
+        context: (subject && subject.context) || %{},
         domain: context.domain
     }
     |> get_policies()
@@ -493,15 +642,15 @@ defmodule Ash.Policy.Authorizer do
     |> case do
       {:authorized, authorizer} ->
         log_successful_policy_breakdown(authorizer)
-        {:authorized, strict_check_all_facts(authorizer)}
+        {:authorized, authorizer}
 
       {:filter, authorizer, filter} ->
         log_successful_policy_breakdown(authorizer, filter)
-        {:filter, strict_check_all_facts(authorizer), filter}
+        {:filter, authorizer, filter}
 
       {:filter_and_continue, filter, authorizer} ->
         log_successful_policy_breakdown(authorizer, filter)
-        {:filter, strict_check_all_facts(authorizer), filter}
+        {:filter, authorizer, filter}
 
       {:error, error} ->
         {:error, error}
@@ -520,16 +669,10 @@ defmodule Ash.Policy.Authorizer do
         authorizer,
         context
       ) do
-    case Ash.Policy.Info.field_policies(resource) do
-      [] ->
-        {:ok, filter}
+    {expr, _acc} =
+      replace_refs(expression, authorizer_acc(authorizer, resource, context))
 
-      _ ->
-        {expr, _acc} =
-          replace_refs(expression, authorizer_acc(authorizer, resource, context))
-
-        {:ok, %{filter | expression: expr}}
-    end
+    {:ok, %{filter | expression: expr}}
   end
 
   def alter_filter(filter, _, _), do: {:ok, filter}
@@ -588,8 +731,91 @@ defmodule Ash.Policy.Authorizer do
 
     type = get_type(authorizer.resource, field)
 
-    field =
+    {path, field, actual_field, action, domain} =
       case {field_name, field} do
+        {nil,
+         %Ash.Query.Calculation{module: Ash.Resource.Calculation.Expression, opts: opts} = calc} ->
+          field_and_path =
+            case opts[:expr] do
+              %Ash.Query.Function.Type{arguments: [%Ash.Query.Ref{} = ref | _]} ->
+                {ref.relationship_path, ref.attribute.name}
+
+              %Ash.Query.Function.Type{arguments: [{:_ref, path, field} | _]} ->
+                {path, field}
+
+              %Ash.Query.Call{name: :type, args: [%Ash.Query.Ref{} = ref | _]} ->
+                {ref.relationship_path, ref.attribute}
+
+              %Ash.Query.Call{name: :type, args: [{:_ref, path, field} | _]} ->
+                {path, field}
+
+              %Ash.Query.Ref{} = ref ->
+                {ref.relationship_path, ref.attribute}
+
+              {:_ref, path, field} ->
+                {path, field}
+
+              _ ->
+                nil
+            end
+
+          case field_and_path do
+            {path, %Ash.Query.Calculation{calc_name: calc_name}} when not is_nil(calc_name) ->
+              {path, calc_name}
+
+            {path, %Ash.Query.Aggregate{agg_name: agg_name}} when not is_nil(agg_name) ->
+              {path, agg_name}
+
+            {_, %Ash.Query.Calculation{}} ->
+              nil
+
+            {_, %Ash.Query.Aggregate{}} ->
+              nil
+
+            {path, %{name: name}} when not is_nil(name) ->
+              {path, name}
+
+            {path, field} when is_atom(field) and not is_nil(field) ->
+              {path, field}
+
+            _ ->
+              nil
+          end
+          |> then(fn
+            nil ->
+              raise Ash.Error.Framework.AssumptionFailed,
+                message: """
+                It should not be possible to provide a non-resource calculation as user input.
+                In the future it will be, and that will need to be addressed here.
+                This error message is to prevent forgetting to address that reality.
+
+                Got:
+
+                  #{inspect(calc)}
+                """
+
+            {path, field} ->
+              relationship = Ash.Resource.Info.relationship(authorizer.resource, path)
+
+              domain =
+                Ash.Domain.Info.related_domain(
+                  relationship.destination,
+                  relationship,
+                  relationship.domain || authorizer.domain
+                )
+
+              action =
+                case relationship.read_action do
+                  nil ->
+                    Ash.Resource.Info.primary_action!(relationship.destination, :read)
+
+                  read_action ->
+                    Ash.Resource.Info.action(relationship.destination, read_action)
+                end
+
+              {path, field, calc, action, domain}
+          end)
+
         {nil, %Ash.Query.Calculation{} = calculation} ->
           raise Ash.Error.Framework.AssumptionFailed,
             message: """
@@ -603,23 +829,26 @@ defmodule Ash.Policy.Authorizer do
             """
 
         {_other, field} ->
-          field
+          {[], field, field, context.query.action, context.query.domain}
       end
+
+    resource =
+      Ash.Resource.Info.related(authorizer.resource, path)
 
     if field_name do
       case field_condition(
-             authorizer.resource,
-             field_name,
-             context.query.action,
-             context.query.domain,
+             resource,
+             field,
+             action,
+             domain,
              acc
            ) do
         {:none, acc} ->
-          {{field, data}, acc}
+          {{actual_field, data}, acc}
 
         {:expr, expr, acc} ->
           field =
-            case field do
+            case actual_field do
               %Ash.Query.Calculation{} = calculation ->
                 %Ash.Query.Ref{
                   attribute: calculation,
@@ -650,7 +879,7 @@ defmodule Ash.Policy.Authorizer do
           {{expr, data}, acc}
       end
     else
-      {{field, data}, acc}
+      {{actual_field, data}, acc}
     end
   end
 
@@ -734,24 +963,31 @@ defmodule Ash.Policy.Authorizer do
   defp do_replace_ref(
          %{
            attribute: %struct{name: name},
-           relationship_path: relationship_path,
-           resource: resource
+           relationship_path: relationship_path
          } = ref,
-         %{stack: [{parent, _path, _action, domain} | _]} = acc
+         %{stack: [{parent, _path, action, domain} | _]} = acc
        )
        when struct in [Ash.Resource.Attribute, Ash.Resource.Aggregate, Ash.Resource.Calculation] do
+    resource = Ash.Resource.Info.related(parent, relationship_path)
+
     action =
-      Map.get(Ash.Resource.Info.relationship(parent, relationship_path) || %{}, :relationship) ||
-        Ash.Resource.Info.primary_action!(resource, :read)
+      case relationship_path do
+        [] ->
+          action
 
-    expression_for_ref(resource, name, action, domain, ref, acc)
-  end
+        path ->
+          case Map.get(
+                 Ash.Resource.Info.relationship(parent, path) || %{},
+                 :read_action
+               ) do
+            nil ->
+              Ash.Resource.Info.primary_action!(resource, :read)
 
-  defp do_replace_ref(
-         %{attribute: %struct{name: name}} = ref,
-         %{stack: [{resource, _path, action, domain} | _]} = acc
-       )
-       when struct in [Ash.Resource.Attribute, Ash.Resource.Aggregate, Ash.Resource.Calculation] do
+            read_action ->
+              Ash.Resource.Info.action(resource, read_action)
+          end
+      end
+
     expression_for_ref(resource, name, action, domain, ref, acc)
   end
 
@@ -780,24 +1016,16 @@ defmodule Ash.Policy.Authorizer do
   defp expression_for_ref(resource, field, action, domain, ref, acc) do
     case field_condition(resource, field, action, domain, acc) do
       {:none, acc} ->
-        {%{ref | input?: false}, acc}
+        {ref, acc}
 
       {:expr, expr, acc} ->
-        expr =
-          Ash.Expr.expr(
-            if ^expr do
-              ^%{ref | input?: false}
-            else
-              nil
-            end
-          )
-
         {expr, acc}
     end
   end
 
   defp field_condition(resource, field, action, domain, acc) do
-    if Ash.Policy.Authorizer in Ash.Resource.Info.authorizers(resource) do
+    if Ash.Policy.Authorizer in Ash.Resource.Info.authorizers(resource) &&
+         !Enum.empty?(Ash.Policy.Info.field_policies(resource)) do
       {authorizer, acc} =
         case Map.fetch(acc.authorizers, {resource, action}) do
           {:ok, authorizer} ->
@@ -872,13 +1100,24 @@ defmodule Ash.Policy.Authorizer do
       # and we don't need to add any calculations
       {:ok, query_or_changeset, authorizer}
     else
+      only_public? =
+        case Ash.Policy.Info.private_fields_policy(query_or_changeset.resource) do
+          :include -> false
+          :show -> true
+          :hide -> false
+        end
+
       accessing_fields =
         case query_or_changeset do
           %Ash.Query{} = query ->
-            Ash.Query.accessing(query, [:attributes, :calculations, :aggregates])
+            Ash.Query.accessing(query, [:attributes, :calculations, :aggregates], only_public?)
 
           %Ash.Changeset{} = changeset ->
-            Ash.Changeset.accessing(changeset, [:attributes, :calculations, :aggregates])
+            Ash.Changeset.accessing(
+              changeset,
+              [:attributes, :calculations, :aggregates],
+              only_public?
+            )
         end
 
       pkey = Ash.Resource.Info.primary_key(query_or_changeset.resource)
@@ -940,7 +1179,7 @@ defmodule Ash.Policy.Authorizer do
               Ash.Resource.Calculation.Expression,
               [expr: expr],
               :boolean,
-              []
+              async?: false
             )
 
           case query_or_changeset do
@@ -982,7 +1221,8 @@ defmodule Ash.Policy.Authorizer do
        ),
        do: authorizer
 
-  defp strict_check_all_facts(authorizer) do
+  @doc false
+  def strict_check_all_facts(authorizer) do
     case Checker.strict_check_all_facts(authorizer) do
       {:ok, authorizer, new_facts} ->
         %{authorizer | facts: new_facts}
@@ -1236,7 +1476,13 @@ defmodule Ash.Policy.Authorizer do
             authorizer.facts,
             filter,
             authorizer.policies,
-            success?: true
+            success?: true,
+            help_text?: false,
+            domain: authorizer.domain,
+            resource: authorizer.resource,
+            actor: authorizer.actor,
+            subject: authorizer.subject,
+            for_fields: authorizer.for_fields
           )
       ]
     )
@@ -1362,50 +1608,144 @@ defmodule Ash.Policy.Authorizer do
   end
 
   defp strict_check_result(authorizer, opts \\ []) do
-    case Checker.strict_check_scenarios(authorizer) do
-      {:ok, true, authorizer} ->
+    %{authorizer | for_fields: opts[:for_fields]}
+    |> Checker.strict_check_scenarios()
+    |> handle_strict_check_result(opts)
+  end
+
+  defp handle_strict_check_result({:ok, true, authorizer}, _opts), do: {:authorized, authorizer}
+
+  defp handle_strict_check_result({:ok, none, authorizer}, opts) when none in [false, []] do
+    handle_strict_check_result({:error, authorizer, :unsatisfiable}, opts)
+  end
+
+  defp handle_strict_check_result({:ok, scenarios, authorizer}, _opts) do
+    case Checker.find_real_scenarios(scenarios, authorizer.facts) do
+      [] ->
+        maybe_strict_filter(authorizer, scenarios)
+
+      _real_scenarios ->
         {:authorized, authorizer}
-
-      {:ok, none, authorizer} when none in [false, []] ->
-        {:error,
-         Ash.Error.Forbidden.Policy.exception(
-           facts: authorizer.facts,
-           policies: authorizer.policies,
-           context_description: opts[:context_description],
-           for_fields: opts[:for_fields],
-           resource: Map.get(authorizer, :resource),
-           action: Map.get(authorizer, :action),
-           scenarios: []
-         )}
-
-      {:ok, scenarios, authorizer} ->
-        case Checker.find_real_scenarios(scenarios, authorizer.facts) do
-          [] ->
-            maybe_strict_filter(authorizer, scenarios)
-
-          _real_scenarios ->
-            {:authorized, authorizer}
-        end
-
-      {:error, authorizer, :unsatisfiable} ->
-        {:error,
-         Ash.Error.Forbidden.Policy.exception(
-           facts: authorizer.facts,
-           policies: authorizer.policies,
-           context_description: opts[:context_description],
-           for_fields: opts[:for_fields],
-           resource: Map.get(authorizer, :resource),
-           action: Map.get(authorizer, :action),
-           scenarios: []
-         )}
-
-      {:error, _authorizer, exception} ->
-        {:error, Ash.Error.to_ash_error(exception)}
     end
+  end
+
+  defp handle_strict_check_result({:error, authorizer, :unsatisfiable}, opts) do
+    if authorizer.action.type == :action || Enum.empty?(authorizer.policies || []) do
+      {:error,
+       Ash.Error.Forbidden.Policy.exception(
+         facts: authorizer.facts,
+         domain: Map.get(authorizer, :domain),
+         solver_statement: Map.get(authorizer, :solver_statement),
+         policies: authorizer.policies,
+         subject: authorizer.subject,
+         context_description: opts[:context_description],
+         for_fields: opts[:for_fields],
+         resource: Map.get(authorizer, :resource),
+         action: Map.get(authorizer, :action),
+         actor: Map.get(authorizer, :actor),
+         scenarios: []
+       )}
+    else
+      if forbidden_due_to_strict_policy?(authorizer) do
+        {:error,
+         Ash.Error.Forbidden.Policy.exception(
+           facts: authorizer.facts,
+           domain: Map.get(authorizer, :domain),
+           solver_statement: Map.get(authorizer, :solver_statement),
+           policies: authorizer.policies,
+           subject: authorizer.subject,
+           context_description: opts[:context_description],
+           for_fields: opts[:for_fields],
+           resource: Map.get(authorizer, :resource),
+           action: Map.get(authorizer, :action),
+           actor: Map.get(authorizer, :actor),
+           scenarios: []
+         )}
+      else
+        {:filter, authorizer, false}
+      end
+    end
+  end
+
+  defp handle_strict_check_result({:error, _authorizer, exception}, _opts) do
+    {:error, Ash.Error.to_ash_error(exception)}
   end
 
   defp maybe_strict_filter(authorizer, scenarios) do
     strict_filter(%{authorizer | scenarios: scenarios})
+  end
+
+  defp forbidden_due_to_strict_policy?(authorizer) do
+    no_filter_static_forbidden_reads? =
+      Keyword.get(
+        Application.get_env(:ash, :policies, []),
+        :no_filter_static_forbidden_reads?,
+        true
+      )
+
+    if no_filter_static_forbidden_reads? || authorizer.for_fields ||
+         authorizer.action.type != :read do
+      true
+    else
+      if Enum.any?(authorizer.policies, fn policy ->
+           Enum.all?(policy.condition || [], fn {check_module, check_opts} ->
+             Policy.fetch_fact(authorizer.facts, {check_module, check_opts}) in [
+               {:ok, true},
+               :unknown
+             ]
+           end)
+         end) do
+        authorizer.policies
+        |> Enum.any?(fn policy ->
+          policy.access_type == :strict and
+            Enum.all?(policy.condition || [], fn {check_module, check_opts} ->
+              Policy.fetch_fact(authorizer.facts, {check_module, check_opts}) == {:ok, true}
+            end) and
+            policy_fails_statically?(authorizer, policy)
+        end)
+      else
+        true
+      end
+    end
+  end
+
+  defp policy_fails_statically?(authorizer, policy) do
+    Enum.reduce_while(policy.policies, :forbidden, fn check, status ->
+      case check.type do
+        :authorize_if ->
+          if Policy.fetch_fact(authorizer.facts, {check.check_module, check.check_opts}) ==
+               {:ok, true} do
+            {:halt, :authorized}
+          else
+            {:cont, status}
+          end
+
+        :forbid_if ->
+          if Policy.fetch_fact(authorizer.facts, {check.check_module, check.check_opts}) ==
+               {:ok, true} do
+            {:halt, :forbidden}
+          else
+            {:cont, status}
+          end
+
+        :authorize_unless ->
+          if Policy.fetch_fact(authorizer.facts, {check.check_module, check.check_opts}) ==
+               {:ok, true} do
+            {:cont, status}
+          else
+            {:halt, :authorized}
+          end
+
+        :forbid_unless ->
+          if Policy.fetch_fact(authorizer.facts, {check.check_module, check.check_opts}) ==
+               {:ok, true} do
+            {:cont, status}
+          else
+            {:halt, :forbidden}
+          end
+      end
+    end)
+    |> Kernel.==(:forbidden)
   end
 
   defp get_policies(authorizer) do
@@ -1415,12 +1755,14 @@ defmodule Ash.Policy.Authorizer do
     }
   end
 
-  def expr_check(expr) when is_function(expr) do
-    {:error,
-     "Inline function checks expect a function with arity 2. Got #{Function.info(expr)[:arity]}"}
-  end
-
   def expr_check(expr) do
     {:ok, {Ash.Policy.Check.Expression, expr: expr}}
   end
+
+  def template_var({template_var, _} = expr)
+      when template_var in [:_actor, :_arg, :_ref, :_parent, :_atomic_ref, :_context] do
+    {:ok, {Ash.Policy.Check.Expression, expr: expr}}
+  end
+
+  def template_var(_), do: {:error, "not a template var"}
 end

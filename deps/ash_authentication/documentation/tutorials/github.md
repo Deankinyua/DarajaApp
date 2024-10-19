@@ -106,6 +106,7 @@ The register action takes two arguments, `user_info` and the `oauth_tokens`.
 
 ```elixir
 defmodule MyApp.Accounts.User do
+  require Ash.Resource.Change.Builtins
   use Ash.Resource,
     extensions: [AshAuthentication],
     domain: MyApp.Accounts
@@ -117,7 +118,7 @@ defmodule MyApp.Accounts.User do
       argument :user_info, :map, allow_nil?: false
       argument :oauth_tokens, :map, allow_nil?: false
       upsert? true
-      upsert_identity :email
+      upsert_identity :unique_email
 
       # Required if you have token generation enabled.
       change AshAuthentication.GenerateTokenChange
@@ -130,10 +131,40 @@ defmodule MyApp.Accounts.User do
 
         Ash.Changeset.change_attributes(changeset, Map.take(user_info, ["email"]))
       end
+
+      # Required if you're using the password & confirmation strategies
+      upsert_fields []
+      change set_attribute(:confirmed_at, &DateTime.utc_now/0)
+      change after_action(fn _changeset, user, _context ->
+        case user.confirmed_at do
+          nil -> {:error, "Unconfirmed user exists already"}
+          _ -> {:ok, user}
+        end
+      end)
     end
   end
 
   # ...
 
 end
+```
+
+Ensure you set the `hashed_password` to `allow_nil?` if you are also using the password strategy.
+
+```elixir
+defmodule MyApp.Accounts.User do
+  # ...
+  attributes do
+    # ...
+    attribute :hashed_password, :string, allow_nil?: true, sensitive?: true
+  end
+  # ...
+end
+```
+
+And generate and run migrations in that case.
+
+```bash
+mix ash.codegen make_hashed_password_nullable
+mix ash.migrate
 ```

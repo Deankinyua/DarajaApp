@@ -36,8 +36,14 @@ defmodule Ash.Can do
     opts = Keyword.put_new(opts, :run_queries?, true)
     opts = Keyword.put_new(opts, :filter_with, :filter)
 
-    {resource, action_or_query_or_changeset, input} =
-      resource_subject_input(action_or_query_or_changeset, domain, actor, opts)
+    {resource, action_or_query_or_changeset, input, opts} =
+      case resource_subject_input(action_or_query_or_changeset, domain, actor, opts) do
+        {resource, action_or_query_or_changeset, input, new_opts} ->
+          {resource, action_or_query_or_changeset, input, Keyword.merge(new_opts, opts)}
+
+        {resource, action_or_query_or_changeset, input} ->
+          {resource, action_or_query_or_changeset, input, opts}
+      end
 
     subject =
       case action_or_query_or_changeset do
@@ -94,64 +100,118 @@ defmodule Ash.Can do
             message: "Invalid action/query/changeset \"#{inspect(action_or_query_or_changeset)}\""
       end
 
-    subject = %{subject | domain: domain}
+    if opts[:validate?] && !subject.valid? do
+      {:ok, false, Ash.Error.to_error_class(subject.errors)}
+    else
+      subject = %{subject | domain: domain}
 
-    pre_flight? = Keyword.get(opts, :pre_flight?, true)
+      pre_flight? = Keyword.get(opts, :pre_flight?, true)
 
-    subject =
-      case subject do
-        %Ash.Query{} ->
-          Ash.Query.set_context(subject, %{private: %{pre_flight_authorization?: pre_flight?}})
+      subject =
+        case subject do
+          %Ash.Query{} ->
+            Ash.Query.set_context(subject, %{private: %{pre_flight_authorization?: pre_flight?}})
 
-        %Ash.Changeset{} ->
-          Ash.Changeset.set_context(subject, %{private: %{pre_flight_authorization?: pre_flight?}})
+          %Ash.Changeset{} ->
+            Ash.Changeset.set_context(subject, %{
+              private: %{pre_flight_authorization?: pre_flight?}
+            })
 
-        %Ash.ActionInput{} ->
-          Ash.ActionInput.set_context(subject, %{
-            private: %{pre_flight_authorization?: pre_flight?}
-          })
+          %Ash.ActionInput{} ->
+            Ash.ActionInput.set_context(subject, %{
+              private: %{pre_flight_authorization?: pre_flight?}
+            })
+        end
+
+      case Ash.Domain.Info.resource(domain, resource) do
+        {:ok, _} ->
+          domain
+          |> run_check(actor, subject, opts)
+          |> alter_source(domain, actor, subject, opts)
+
+        {:error, error} ->
+          {:error, error}
       end
-
-    case Ash.Domain.Info.resource(domain, resource) do
-      {:ok, _} ->
-        domain
-        |> run_check(actor, subject, opts)
-        |> alter_source(domain, actor, subject, opts)
-
-      {:error, error} ->
-        {:error, error}
     end
   end
 
   defp resource_subject_input(action_or_query_or_changeset, domain, actor, opts) do
     case action_or_query_or_changeset do
       {resource, name} when is_atom(name) and is_atom(resource) ->
+        action =
+          Ash.Resource.Info.action(resource, name) ||
+            raise ArgumentError, "No such action #{name} on #{inspect(resource)}"
+
         resource_subject_input(
-          {resource, Ash.Resource.Info.action(resource, name), %{}},
+          {resource, action, %{}},
           domain,
           actor,
           opts
         )
 
-      {resource, name, input} when is_atom(name) and is_atom(resource) ->
+      {resource, name, input} when is_atom(name) and is_atom(resource) and not is_nil(name) ->
+        action =
+          Ash.Resource.Info.action(resource, name) ||
+            raise ArgumentError, "No such action #{name} on #{inspect(resource)}"
+
         resource_subject_input(
-          {resource, Ash.Resource.Info.action(resource, name), input},
+          {resource, action, input},
           domain,
           actor,
           opts
         )
 
-      {%resource{} = record, name} when is_atom(name) and is_atom(resource) ->
+      {%Ash.Query{} = query, name} ->
+        query
+        |> Ash.Query.for_read(name, %{})
+        |> resource_subject_input(domain, actor, opts)
+
+      {%Ash.Changeset{} = changeset, name} ->
+        changeset
+        |> Ash.Changeset.for_action(name, %{})
+        |> resource_subject_input(domain, actor, opts)
+
+      {%Ash.ActionInput{} = input, name} ->
+        input
+        |> Ash.ActionInput.for_action(name, %{})
+        |> resource_subject_input(domain, actor, opts)
+
+      {%Ash.Query{} = query, name, input} ->
+        query
+        |> Ash.Query.for_read(name, input)
+        |> resource_subject_input(domain, actor, opts)
+
+      {%Ash.Changeset{} = changeset, name, input} ->
+        changeset
+        |> Ash.Changeset.for_action(name, input)
+        |> resource_subject_input(domain, actor, opts)
+
+      {%Ash.ActionInput{} = input, name, action_input} ->
+        input
+        |> Ash.ActionInput.for_action(name, action_input)
+        |> resource_subject_input(domain, actor, opts)
+
+      {%resource{} = record, name}
+      when is_atom(name) and is_atom(resource) and not is_nil(name) ->
+        action =
+          Ash.Resource.Info.action(resource, name) ||
+            raise ArgumentError, "No such action #{name} on #{inspect(resource)}"
+
         resource_subject_input(
-          {record, Ash.Resource.Info.action(resource, name), %{}},
+          {record, action, %{}},
           domain,
           actor,
           opts
         )
 
-      {%resource{} = record, name, input} when is_atom(name) and is_atom(resource) ->
+      {%resource{} = record, name, input}
+      when is_atom(name) and is_atom(resource) and not is_nil(name) ->
+        action =
+          Ash.Resource.Info.action(resource, name) ||
+            raise ArgumentError, "No such action #{name} on #{inspect(resource)}"
+
         resource_subject_input(
-          {record, Ash.Resource.Info.action(resource, name), input},
+          {record, action, input},
           domain,
           actor,
           opts
@@ -182,8 +242,7 @@ defmodule Ash.Can do
            domain: domain,
            tenant: opts[:tenant],
            actor: actor
-         )
-         |> filter_by_pkey(record), input}
+         ), input, data: [record]}
 
       {%resource{}, %Ash.Resource.Actions.Action{} = action, input} ->
         {resource,
@@ -251,13 +310,6 @@ defmodule Ash.Can do
         Got: #{inspect({resource, action})}
         """
     end
-  end
-
-  defp filter_by_pkey(query, %resource{} = record) do
-    Ash.Query.do_filter(
-      query,
-      record |> Map.take(Ash.Resource.Info.primary_key(resource)) |> Map.to_list()
-    )
   end
 
   defp alter_source({:ok, true, query}, domain, actor, %Ash.Changeset{} = subject, opts) do
@@ -407,21 +459,22 @@ defmodule Ash.Can do
       authorizers ->
         authorizers
         |> Enum.reduce_while(
-          {false, base_query},
-          fn {authorizer, authorizer_state, context}, {_authorized?, query} ->
+          {false, base_query, []},
+          fn {authorizer, authorizer_state, context}, {_authorized?, query, authorizers} ->
             case authorizer.strict_check(authorizer_state, context) do
               {:error, %{class: :forbidden} = e} when is_exception(e) ->
-                {:halt, {false, e}}
+                {:halt, {false, e, {authorizer, authorizer_state, context}}}
 
               {:error, error} ->
-                {:halt, {:error, error}}
+                {:halt, {:error, authorizer, error}}
 
-              {:authorized, _} ->
-                {:cont, {true, query}}
+              {:authorized, authorizer_state} ->
+                {:cont, {true, query, [{authorizer, authorizer_state, context} | authorizers]}}
 
               :forbidden ->
                 {:halt,
-                 {false, Ash.Authorizer.exception(authorizer, :forbidden, authorizer_state)}}
+                 {false, Ash.Authorizer.exception(authorizer, :forbidden, authorizer_state),
+                  {authorizer, authorizer_state, context}}}
 
               _ when not is_nil(context.action_input) ->
                 raise """
@@ -436,8 +489,8 @@ defmodule Ash.Can do
                     Ash.Expr.fill_template(
                       filter,
                       actor,
-                      %{},
-                      %{},
+                      opts[:atomic_changeset].arguments,
+                      opts[:atomic_changeset].context,
                       opts[:atomic_changeset]
                     )
                   else
@@ -448,13 +501,13 @@ defmodule Ash.Can do
                  {true,
                   apply_filter(
                     query,
-                    subject.resource,
+                    subject,
                     domain,
                     filter,
                     authorizer,
                     authorizer_state,
                     opts
-                  )}}
+                  ), [{authorizer, authorizer_state, context} | authorizers]}}
 
               {:filter, filter} ->
                 filter =
@@ -462,8 +515,8 @@ defmodule Ash.Can do
                     Ash.Expr.fill_template(
                       filter,
                       actor,
-                      %{},
-                      %{},
+                      opts[:atomic_changeset].arguments,
+                      opts[:atomic_changeset].context,
                       opts[:atomic_changeset]
                     )
                   else
@@ -474,19 +527,19 @@ defmodule Ash.Can do
                  {true,
                   apply_filter(
                     query,
-                    subject.resource,
+                    subject,
                     domain,
                     filter,
                     authorizer,
                     authorizer_state,
                     opts
-                  )}}
+                  ), [{authorizer, authorizer_state, context} | authorizers]}}
 
               {:continue, authorizer_state} ->
                 if opts[:no_check?] do
                   {:halt,
                    opts[:on_must_pass_strict_check] ||
-                     {:error,
+                     {:error, {authorizer, authorizer_state, context},
                       Ash.Authorizer.exception(
                         authorizer,
                         :must_pass_strict_check,
@@ -496,7 +549,7 @@ defmodule Ash.Can do
                   if opts[:alter_source?] || !match?(%Ash.Query{}, subject) do
                     query_with_hook =
                       Ash.Query.authorize_results(
-                        or_query(query, subject.resource, domain),
+                        or_query(query, subject.resource, domain, subject),
                         fn query, results ->
                           context = Map.merge(context, %{data: results, query: query})
 
@@ -509,13 +562,17 @@ defmodule Ash.Can do
                         end
                       )
 
-                    {:cont, {true, query_with_hook}}
+                    {:cont,
+                     {true, query_with_hook,
+                      [{authorizer, authorizer_state, context} | authorizers]}}
                   else
                     if opts[:maybe_is] == false do
                       {:halt,
-                       {false, Ash.Authorizer.exception(authorizer, :forbidden, authorizer_state)}}
+                       {false, Ash.Authorizer.exception(authorizer, :forbidden, authorizer_state),
+                        {authorizer, authorizer_state, context}}}
                     else
-                      {:halt, {:maybe, nil}}
+                      {:halt,
+                       {:maybe, nil, [{authorizer, authorizer_state, context} | authorizers]}}
                     end
                   end
                 end
@@ -535,17 +592,18 @@ defmodule Ash.Can do
                   end
 
                 if opts[:no_check?] || !match?(%Ash.Query{}, subject) do
-                  Ash.Authorizer.exception(
-                    authorizer,
-                    :must_pass_strict_check,
-                    authorizer_state
-                  )
+                  {:error, {authorizer, authorizer_state, context},
+                   Ash.Authorizer.exception(
+                     authorizer,
+                     :must_pass_strict_check,
+                     authorizer_state
+                   )}
                 else
                   if opts[:alter_source?] do
                     query_with_hook =
                       query
                       |> apply_filter(
-                        subject.resource,
+                        subject,
                         domain,
                         filter,
                         authorizer,
@@ -562,13 +620,17 @@ defmodule Ash.Can do
                         end
                       end)
 
-                    {:cont, {true, query_with_hook}}
+                    {:cont,
+                     {true, query_with_hook,
+                      [{authorizer, authorizer_state, context} | authorizers]}}
                   else
                     if opts[:maybe_is] == false do
                       {:halt,
-                       {false, Ash.Authorizer.exception(authorizer, :forbidden, authorizer_state)}}
+                       {false, Ash.Authorizer.exception(authorizer, :forbidden, authorizer_state),
+                        authorizer}}
                     else
-                      {:halt, {:maybe, nil}}
+                      {:halt,
+                       {:maybe, nil, [{authorizer, authorizer_state, context} | authorizers]}}
                     end
                   end
                 end
@@ -576,10 +638,13 @@ defmodule Ash.Can do
           end
         )
         |> case do
-          {:error, error} ->
+          {:error, _authorizer, error} ->
             {:error, error}
 
-          {true, query} when not is_nil(query) ->
+          {true, nil, _} ->
+            {:ok, true}
+
+          {true, query, authorizers} when not is_nil(query) ->
             if opts[:run_queries?] do
               run_queries(subject, actor, opts, authorizers, query)
             else
@@ -590,40 +655,34 @@ defmodule Ash.Can do
               end
             end
 
-          {false, error} ->
+          {false, error, authorizer} ->
             if opts[:return_forbidden_error?] do
-              {:ok, false, error || authorizer_exception(authorizers)}
+              {:ok, false, error || authorizer_exception([authorizer])}
             else
               {:ok, false}
             end
 
-          {other, _} ->
-            {:ok, other}
-        end
-        |> case do
-          {:ok, :maybe} ->
+          {:maybe, _v, authorizers} ->
             if opts[:maybe_is] == false && opts[:return_forbidden_error?] do
               {:ok, false, authorizer_exception(authorizers)}
             else
               {:ok, opts[:maybe_is]}
             end
-
-          other ->
-            other
         end
     end
   end
 
-  defp apply_filter(query, resource, domain, filter, authorizer, authorizer_state, opts) do
+  defp apply_filter(query, subject, domain, filter, authorizer, authorizer_state, opts) do
+    resource = subject.resource
     filter = Ash.Filter.parse!(resource, filter).expression
 
     case opts[:filter_with] || :filter do
       :filter ->
-        Ash.Query.filter(or_query(query, resource, domain), ^filter)
+        Ash.Query.filter(or_query(query, resource, domain, subject), ^filter)
 
       :error ->
         Ash.Query.filter(
-          or_query(query, resource, domain),
+          or_query(query, resource, domain, subject),
           if ^filter do
             true
           else
@@ -654,6 +713,7 @@ defmodule Ash.Can do
           else
             query
             |> Ash.Query.do_filter(or: pkey_values)
+            |> Ash.Query.select([])
             |> Ash.Query.data_layer_query()
             |> case do
               {:ok, data_layer_query} ->
@@ -698,8 +758,8 @@ defmodule Ash.Can do
             Ash.Expr.fill_template(
               filter,
               actor,
-              %{},
-              %{},
+              changeset.arguments,
+              changeset.context,
               changeset
             )
           end)
@@ -710,6 +770,7 @@ defmodule Ash.Can do
           query
           |> Ash.Query.do_filter(pkey_value)
           |> Ash.Query.set_tenant(tenant)
+          |> Ash.Query.select([])
           |> Ash.Query.data_layer_query()
           |> case do
             {:ok, data_layer_query} ->
@@ -751,16 +812,12 @@ defmodule Ash.Can do
         end
 
       %Ash.Changeset{} ->
-        if opts[:return_forbidden_error?] do
-          {:ok, false, authorizer_exception(authorizers)}
-        else
-          {:ok, false}
-        end
+        raise Ash.Error.Forbidden.CannotFilterCreates, filter: query.filter
     end
   end
 
-  defp or_query(query, resource, domain) do
-    query || Ash.Query.new(resource, domain: domain)
+  defp or_query(query, resource, domain, subject) do
+    query || Ash.Query.set_context(Ash.Query.new(resource, domain: domain), subject.context)
   end
 
   defp authorizer_exception([{authorizer, authorizer_state, _context}]) do

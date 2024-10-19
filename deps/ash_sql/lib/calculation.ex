@@ -11,8 +11,6 @@ defmodule AshSql.Calculation do
   def add_calculations(query, [], _, _, _select?), do: {:ok, query}
 
   def add_calculations(query, calculations, resource, source_binding, select?) do
-    query.__ash_bindings__[:parent_bindings]
-
     {:ok, query} =
       AshSql.Join.join_all_relationships(
         query,
@@ -85,7 +83,7 @@ defmodule AshSql.Calculation do
                 AshSql.Expr.dynamic_expr(
                   query,
                   expression,
-                  query.__ash_bindings__,
+                  Map.put(query.__ash_bindings__, :location, :select),
                   false,
                   type
                 )

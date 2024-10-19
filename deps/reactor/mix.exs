@@ -1,7 +1,7 @@
 defmodule Reactor.MixProject do
   use Mix.Project
 
-  @version "0.8.4"
+  @version "0.10.0"
   @description "An asynchronous, graph-based execution engine"
 
   def project do
@@ -20,6 +20,7 @@ defmodule Reactor.MixProject do
       dialyzer: [plt_add_apps: [:mix]],
       docs: [
         main: "readme",
+        logo: "logos/reactor-logo-light-small.png",
         extras: extra_documentation(),
         groups_for_extras: extra_documentation_groups(),
         before_closing_head_tag: fn type ->
@@ -93,6 +94,8 @@ defmodule Reactor.MixProject do
       {:spark, "~> 2.0"},
       {:splode, "~> 0.2"},
       {:libgraph, "~> 0.16"},
+      {:igniter, "~> 0.2"},
+      {:iterex, "~> 0.1"},
       {:telemetry, "~> 1.2"},
 
       # Dev/Test dependencies

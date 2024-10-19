@@ -1,7 +1,7 @@
 defmodule Phoenix.LiveView.MixProject do
   use Mix.Project
 
-  @version "0.20.14"
+  @version "0.20.17"
 
   def project do
     [
@@ -11,6 +11,7 @@ defmodule Phoenix.LiveView.MixProject do
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       test_options: [docs: true],
+      test_coverage: [summary: [threshold: 85]],
       xref: [exclude: [Floki]],
       package: package(),
       deps: deps(),
@@ -20,7 +21,10 @@ defmodule Phoenix.LiveView.MixProject do
       homepage_url: "http://www.phoenixframework.org",
       description: """
       Rich, real-time user experiences with server-rendered HTML
-      """
+      """,
+      preferred_cli_env: [
+        docs: :docs
+      ]
     ]
   end
 
@@ -51,7 +55,7 @@ defmodule Phoenix.LiveView.MixProject do
       {:makeup_diff, "~> 0.1", only: :docs},
       {:html_entities, ">= 0.0.0", only: :test},
       {:phoenix_live_reload, "~> 1.4.1", only: :test},
-      {:plug_cowboy, "~> 2.6", only: :e2e}
+      {:bandit, "~> 1.5", only: :e2e}
     ]
   end
 
@@ -64,7 +68,7 @@ defmodule Phoenix.LiveView.MixProject do
       extras: extras(),
       groups_for_extras: groups_for_extras(),
       groups_for_modules: groups_for_modules(),
-      groups_for_functions: [
+      groups_for_docs: [
         Components: &(&1[:type] == :component),
         Macros: &(&1[:type] == :macro)
       ],
@@ -121,14 +125,17 @@ defmodule Phoenix.LiveView.MixProject do
   defp before_closing_body_tag(_), do: ""
 
   defp extras do
-    ["CHANGELOG.md"] ++ Path.wildcard("guides/*/*.md")
+    ["CHANGELOG.md"] ++
+      Path.wildcard("guides/*/*.md") ++
+      Path.wildcard("guides/cheatsheets/*.cheatmd")
   end
 
   defp groups_for_extras do
     [
-      Introduction: ~r/guides\/introduction\/.?/,
-      "Server-side features": ~r/guides\/server\/.?/,
-      "Client-side integration": ~r/guides\/client\/.?/
+      Introduction: ~r"guides/introduction/",
+      "Server-side features": ~r"guides/server/",
+      "Client-side integration": ~r"guides/client/",
+      Cheatsheets: ~r"guides/cheatsheets/"
     ]
   end
 

@@ -1,5 +1,5 @@
 {application,libgraph,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332002},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir]},
               {description,"A high-performance graph datastructure library for Elixir projects"},

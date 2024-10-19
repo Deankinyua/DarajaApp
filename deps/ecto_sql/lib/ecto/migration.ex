@@ -163,14 +163,16 @@ defmodule Ecto.Migration do
 
   ## Executing and flushing
 
-  Instructions inside of migrations are not executed immediately. Instead
-  they are performed after the relevant `up`, `change`, or `down` callback
-  terminates.
+  Most functions in this module, when executed inside of migrations, are not
+  executed immediately. Instead they are performed after the relevant `up`,
+  `change`, or `down` callback terminates. Any other functions, such as
+  functions provided by `Ecto.Repo`, will be executed immediately unless they
+  are called from within an anonymous function passed to `execute/1`.
 
-  However, in some situations you may want to guarantee that all of the
-  previous steps have been executed before continuing. This is useful when
-  you need to apply a set of changes to the table before continuing with the
-  migration. This can be done with `flush/0`:
+  In some situations you may want to guarantee that all of the previous steps
+  have been executed before continuing. This is useful when you need to apply a
+  set of changes to the table before continuing with the migration. This can be
+  done with `flush/0`:
 
       def up do
         ...
@@ -393,7 +395,7 @@ defmodule Ecto.Migration do
 
     @type t :: %__MODULE__{
             table: String.t(),
-            prefix: atom,
+            prefix: String.t() | nil,
             name: atom,
             columns: [atom | String.t()],
             unique: boolean,
@@ -418,7 +420,7 @@ defmodule Ecto.Migration do
 
     @type t :: %__MODULE__{
             name: String.t(),
-            prefix: atom | nil,
+            prefix: String.t() | nil,
             comment: String.t() | nil,
             primary_key: boolean | keyword(),
             engine: atom,
@@ -441,18 +443,25 @@ defmodule Ecto.Migration do
               on_update: :nothing,
               validate: true,
               with: [],
-              match: nil
+              match: nil,
+              options: []
 
+    @typedoc """
+    The reference struct.
+
+    The `:prefix` field is deprecated and should instead be stored in the `:options` field.
+    """
     @type t :: %__MODULE__{
             table: String.t(),
-            prefix: atom | nil,
+            prefix: String.t() | nil,
             column: atom,
             type: atom,
             on_delete: atom,
             on_update: atom,
             validate: boolean,
             with: list,
-            match: atom | nil
+            match: atom | nil,
+            options: [{:prefix, String.t() | nil}]
           }
   end
 
@@ -473,7 +482,7 @@ defmodule Ecto.Migration do
     @type t :: %__MODULE__{
             name: atom,
             table: String.t(),
-            prefix: atom | nil,
+            prefix: String.t() | nil,
             check: String.t() | nil,
             exclude: String.t() | nil,
             comment: String.t() | nil,
@@ -758,7 +767,7 @@ defmodule Ecto.Migration do
   end
 
   def table(name, opts) when is_binary(name) and is_list(opts) do
-    struct(%Table{name: name}, opts)
+    struct!(%Table{name: name}, opts)
   end
 
   @doc ~S"""
@@ -813,7 +822,7 @@ defmodule Ecto.Migration do
 
   If the database adapter supports several migration lock strategies, such as
   Postgrex, then review those strategies and consider using a strategy that
-  utilizes advisory locks to faciliate running migrations one at a time even
+  utilizes advisory locks to facilitate running migrations one at a time even
   across multiple nodes. For example:
 
   ### Config file (PostgreSQL)
@@ -911,6 +920,11 @@ defmodule Ecto.Migration do
       # Create a tsvector GIN index on PostgreSQL
       create index("products", ["(to_tsvector('english', name))"],
                    name: :products_name_vector, using: "GIN")
+
+  If the expression is a column name, it will not be quoted. This may cause issues
+  when the column is named after a reserved word. Consider using an atom instead.
+  For example, the name `offset` is reserved in many databases so the following
+  could produce an error: `create index("products", ["offset"])`.
   """
   def index(table, columns, opts \\ [])
 
@@ -924,7 +938,7 @@ defmodule Ecto.Migration do
 
   def index(table, columns, opts) when is_binary(table) and is_list(columns) and is_list(opts) do
     validate_index_opts!(opts)
-    index = struct(%Index{table: table, columns: columns}, opts)
+    index = struct!(%Index{table: table, columns: columns}, opts)
     %{index | name: index.name || default_index_name(index)}
   end
 
@@ -942,10 +956,15 @@ defmodule Ecto.Migration do
   defp default_index_name(index) do
     [index.table, index.columns, "index"]
     |> List.flatten()
-    |> Enum.map(&to_string(&1))
-    |> Enum.map(&String.replace(&1, ~r"[^\w_]", "_"))
-    |> Enum.map(&String.replace_trailing(&1, "_", ""))
-    |> Enum.join("_")
+    |> Enum.map_join(
+      "_",
+      fn item ->
+        item
+        |> to_string()
+        |> String.replace(~r"[^\w]", "_")
+        |> String.replace_trailing("_", "")
+      end
+    )
     |> String.to_atom()
   end
 
@@ -953,11 +972,15 @@ defmodule Ecto.Migration do
   Executes arbitrary SQL, anonymous function or a keyword command.
 
   The argument is typically a string, containing the SQL command to be executed.
-  Keyword commands exist for non-SQL adapters and are not used in most situations.
+  Keyword commands exist for non-SQL adapters and are not used in most
+  situations.
 
-  Supplying an anonymous function does allow for arbitrary code to execute as
-  part of the migration. This is most often used in combination with `repo/0`
-  by library authors who want to create high-level migration helpers.
+  You may instead run arbitrary code as part of your migration by supplying an
+  anonymous function. This defers execution of the anonymous function until
+  the migration callback has terminated (see [Executing and
+  flushing](#module-executing-and-flushing)). This is most often used in
+  combination with `repo/0` by library authors who want to create high-level
+  migration helpers.
 
   Reversible commands can be defined by calling `execute/2`.
 
@@ -1122,6 +1145,8 @@ defmodule Ecto.Migration do
       generation. Default is defined by the database.
     * `:increment` - option for `:identity` key, represents increment value for
       sequence generation. Default is defined by the database.
+    * `:fields` - option for `:duration` type. Restricts the set of stored interval fields
+      in the database.
 
   """
   def add(column, type, opts \\ []) when is_atom(column) and is_list(opts) do
@@ -1243,7 +1268,7 @@ defmodule Ecto.Migration do
   the corresponding foreign key constraints before modifying the type.
   Generally speaking, you want to pass the type and each option
   you are modifying to `:from`, so the column can be rolled back properly.
-  However, note that `:from` cannot be be used to modify primary keys,
+  However, note that `:from` cannot be used to modify primary keys,
   as those are generally trickier to revert.
 
   See `add/3` for more information on supported types.
@@ -1335,15 +1360,32 @@ defmodule Ecto.Migration do
   end
 
   @doc """
-  Removes a column only if the column exists when altering the constraint if the reference type is passed
-  once it only has the constraint name on reference structure.
+  Removes a column if the column exists.
 
-  This command is not reversible as Ecto does not know about column existence before the removal attempt.
+  This command is not reversible as Ecto does not know whether or not the column existed before the removal attempt.
 
   ## Examples
 
       alter table("posts") do
-        remove_if_exists :title, :string
+        remove_if_exists :title
+      end
+
+  """
+  def remove_if_exists(column) when is_atom(column) do
+    Runner.subcommand({:remove_if_exists, column})
+  end
+
+  @doc """
+  Removes a column if the column exists.
+
+  If the type is a reference, removes the foreign key constraint for the reference first, if it exists.
+
+  This command is not reversible as Ecto does not know whether or not the column existed before the removal attempt.
+
+  ## Examples
+
+      alter table("posts") do
+        remove_if_exists :author_id, references(:authors)
       end
 
   """
@@ -1358,7 +1400,7 @@ defmodule Ecto.Migration do
   By default it assumes you are linking to the referenced table
   via its primary key with name `:id`. If you are using a non-default
   key setup (e.g. using `uuid` type keys) you must ensure you set the
-  options, such as `:name` and `:type`, to match your target key.
+  options, such as `:column` and `:type`, to match your target key.
 
   ## Examples
 
@@ -1405,8 +1447,14 @@ defmodule Ecto.Migration do
   end
 
   def references(table, opts) when is_binary(table) and is_list(opts) do
-    opts = Keyword.merge(foreign_key_repo_opts(), opts)
-    reference = struct(%Reference{table: table}, opts)
+    reference_options = Keyword.take(opts, [:prefix])
+
+    opts =
+      foreign_key_repo_opts()
+      |> Keyword.merge(opts)
+      |> Keyword.put(:options, reference_options)
+
+    reference = struct!(%Reference{table: table}, opts)
     check_on_delete!(reference.on_delete)
     check_on_update!(reference.on_update)
 
@@ -1462,11 +1510,34 @@ defmodule Ecto.Migration do
     * `:check` - A check constraint expression. Required when creating a check constraint.
     * `:exclude` - An exclusion constraint expression. Required when creating an exclusion constraint.
     * `:prefix` - The prefix for the table.
-    * `:validate` - Whether or not to validate the constraint on creation (true by default). Only
-       available in PostgreSQL, and should be followed by a command to validate the new constraint in
-       a following migration if false.
+    * `:validate` - Whether or not to validate the constraint on creation (true by default). See the section below for more information
     * `:comment` - adds a comment to the constraint.
 
+
+  ## Using `validate: false`
+
+  Validation/Enforcement of a constraint is enabled by default, but disabling on constraint
+  creation is supported by PostgreSQL, and MySQL, and can be done by setting `validate: false`.
+
+  Setting `validate: false` as an option can be useful, as the creation of a constraint will cause
+  a full table scan to check existing rows. The constraint will still be enforced for subsequent
+  inserts and updates, but should then be updated in a following command or migration to enforce
+  the new constraint.
+
+  Validating / Enforcing the constraint in a later command, or migration, can be done like so:
+
+  ```
+    def change do
+      # PostgreSQL
+      execute "ALTER TABLE products VALIDATE CONSTRAINT price_must_be_positive", ""
+
+      # MySQL
+      execute "ALTER TABLE products ALTER CONSTRAINT price_must_be_positive ENFORCED", ""
+    end
+  ```
+
+  See the [Safe Ecto Migrations guide](https://fly.io/phoenix-files/safe-ecto-migrations/) for an
+  in-depth explanation of the benefits of this approach.
   """
   def constraint(table, name, opts \\ [])
 
@@ -1475,10 +1546,14 @@ defmodule Ecto.Migration do
   end
 
   def constraint(table, name, opts) when is_binary(table) and is_list(opts) do
-    struct(%Constraint{table: table, name: name}, opts)
+    struct!(%Constraint{table: table, name: name}, opts)
   end
 
-  @doc "Executes queue migration commands."
+  @doc """
+  Execute all changes specified by the migration so far.
+
+  See [Executing and flushing](#module-executing-and-flushing).
+  """
   defmacro flush do
     quote do
       if direction() == :down and not function_exported?(__MODULE__, :down, 0) do

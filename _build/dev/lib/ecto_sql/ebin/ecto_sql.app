@@ -1,5 +1,5 @@
 {application,ecto_sql,
-             [{config_mtime,1719649741},
+             [{config_mtime,1729332000},
               {optional_applications,[postgrex,myxql,tds]},
               {applications,[kernel,stdlib,elixir,logger,eex,ecto,telemetry,
                              db_connection,postgrex,myxql,tds]},
@@ -32,6 +32,6 @@
                         'Elixir.Mix.Tasks.Ecto.Migrations',
                         'Elixir.Mix.Tasks.Ecto.Rollback']},
               {registered,[]},
-              {vsn,"3.11.2"},
+              {vsn,"3.12.1"},
               {env,[{postgres_map_type,<<"jsonb">>}]},
               {mod,{'Elixir.Ecto.Adapters.SQL.Application',[]}}]}.

@@ -50,7 +50,8 @@ defmodule AshAuthentication.Phoenix.Components.SignIn do
           optional(:path) => String.t(),
           optional(:reset_path) => String.t(),
           optional(:register_path) => String.t(),
-          optional(:current_tenant) => String.t()
+          optional(:current_tenant) => String.t(),
+          optional(:context) => map()
         }
 
   @doc false
@@ -81,6 +82,8 @@ defmodule AshAuthentication.Phoenix.Components.SignIn do
       |> assign_new(:reset_path, fn -> nil end)
       |> assign_new(:register_path, fn -> nil end)
       |> assign_new(:current_tenant, fn -> nil end)
+      |> assign_new(:context, fn -> %{} end)
+      |> assign_new(:auth_routes_prefix, fn -> nil end)
 
     {:ok, socket}
   end
@@ -103,10 +106,12 @@ defmodule AshAuthentication.Phoenix.Components.SignIn do
               live_action={@live_action}
               strategy={strategy}
               path={@path}
+              auth_routes_prefix={@auth_routes_prefix}
               reset_path={@reset_path}
               register_path={@register_path}
               overrides={@overrides}
               current_tenant={@current_tenant}
+              context={@context}
             />
           <% end %>
         <% end %>
@@ -125,11 +130,13 @@ defmodule AshAuthentication.Phoenix.Components.SignIn do
               component={component_for_strategy(strategy)}
               live_action={@live_action}
               strategy={strategy}
+              auth_routes_prefix={@auth_routes_prefix}
               path={@path}
               reset_path={@reset_path}
               register_path={@register_path}
               overrides={@overrides}
               current_tenant={@current_tenant}
+              context={@context}
             />
           <% end %>
         <% end %>
@@ -145,12 +152,14 @@ defmodule AshAuthentication.Phoenix.Components.SignIn do
         module={@component}
         id={strategy_id(@strategy)}
         strategy={@strategy}
+        auth_routes_prefix={@auth_routes_prefix}
         path={@path}
         reset_path={@reset_path}
         register_path={@register_path}
         live_action={@live_action}
         overrides={@overrides}
         current_tenant={@current_tenant}
+        context={@context}
       />
     </div>
     """
@@ -171,6 +180,8 @@ defmodule AshAuthentication.Phoenix.Components.SignIn do
   defp strategy_style(%Strategy.Password{}), do: :form
   defp strategy_style(%Strategy.MagicLink{}), do: :form
   defp strategy_style(_), do: :link
+
+  defp component_for_strategy(%{strategy_module: Strategy.Apple}), do: Components.Apple
 
   defp component_for_strategy(strategy) do
     strategy.__struct__

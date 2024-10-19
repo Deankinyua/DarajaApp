@@ -1,7 +1,7 @@
 defmodule Ecto.Integration.TypeTest do
   use Ecto.Integration.Case, async: Application.compile_env(:ecto, :async_integration_tests, true)
 
-  alias Ecto.Integration.{Comment, Custom, Item, ItemColor, Order, Post, User, Tag, Usec}
+  alias Ecto.Integration.{Bitstring, Comment, Custom, Item, ItemColor, Order, Post, User, Tag, Usec}
   alias Ecto.Integration.TestRepo
   import Ecto.Query
 
@@ -65,6 +65,66 @@ defmodule Ecto.Integration.TypeTest do
     TestRepo.insert!(%Usec{naive_datetime_usec: naive_datetime, utc_datetime_usec: datetime})
     assert [^naive_datetime] = TestRepo.all(from u in Usec, where: u.naive_datetime_usec == ^naive_datetime, select: u.naive_datetime_usec)
     assert [^datetime] = TestRepo.all(from u in Usec, where: u.utc_datetime_usec == ^datetime, select: u.utc_datetime_usec)
+  end
+
+  @tag :bitstring_type
+  test "bitstring type" do
+    bitstring = <<2::3>>
+
+    TestRepo.insert!(%Bitstring{bs: bitstring, bs_with_size: <<5::10>>})
+
+    # Bitstrings
+    assert [^bitstring] = TestRepo.all(from p in Bitstring, where: p.bs == ^bitstring, select: p.bs)
+    assert [^bitstring] = TestRepo.all(from p in Bitstring, where: p.bs == <<2::3>>, select: p.bs)
+
+    assert [<<42::6>>] = TestRepo.all(from p in Bitstring, limit: 1, select: p.bs_with_default)
+  end
+
+  if Code.ensure_loaded?(Duration) do
+    @tag :duration_type
+    test "duration type" do
+      duration = %Duration{year: 1, month: 1, second: 1, microsecond: {100, 6}}
+
+      struct = %Ecto.Integration.Duration{
+        dur: duration,
+        dur_with_fields: duration,
+        dur_with_precision: duration,
+        dur_with_fields_and_precision: duration
+      }
+
+      TestRepo.insert!(struct)
+
+      persisted_duration =
+        from(d in Ecto.Integration.Duration, where: d.dur == ^duration)
+        |> TestRepo.one()
+
+      assert persisted_duration.dur == duration
+
+      # `:field` option set to MONTH so it ignores all units lower than `:month`
+      assert persisted_duration.dur_with_fields == %Duration{
+               year: 1,
+               month: 1,
+               microsecond: {0, 6}
+             }
+
+      assert persisted_duration.dur_with_precision == %Duration{
+               year: 1,
+               month: 1,
+               second: 1,
+               microsecond: {100, 4}
+             }
+
+      # `:field` option is set to HOUR TO SECOND so it ignores all units lower than `:second`
+      assert persisted_duration.dur_with_fields_and_precision == %Duration{
+               year: 1,
+               month: 1,
+               second: 1,
+               microsecond: {0, 1}
+             }
+
+      # `:default set in migration`
+      assert persisted_duration.dur_with_default == %Duration{month: 10, microsecond: {0, 6}}
+    end
   end
 
   @tag :select_not

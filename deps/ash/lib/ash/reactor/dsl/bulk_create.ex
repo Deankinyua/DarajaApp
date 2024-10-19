@@ -13,10 +13,11 @@ defmodule Ash.Reactor.Dsl.BulkCreate do
             authorize_query_with: :filter,
             authorize?: nil,
             batch_size: nil,
+            context: nil,
             description: nil,
             domain: nil,
             initial: nil,
-            load: [],
+            load: nil,
             max_concurrency: 0,
             name: nil,
             notification_metadata: %{},
@@ -48,17 +49,18 @@ defmodule Ash.Reactor.Dsl.BulkCreate do
           __identifier__: any,
           action_step?: true,
           action: atom,
-          actor: [Ash.Reactor.Dsl.Actor.t()],
+          actor: nil | Ash.Reactor.Dsl.Actor.t(),
           assume_casted?: boolean,
           async?: boolean,
           authorize_changeset_with: :filter | :error,
           authorize_query_with: :filter | :error,
           authorize?: boolean | nil,
           batch_size: nil | pos_integer(),
+          context: nil | Ash.Reactor.Dsl.Context.t(),
           description: String.t() | nil,
           domain: Ash.Domain.t(),
           initial: Reactor.Template.t(),
-          load: [atom],
+          load: nil | Ash.Reactor.Dsl.ActionLoad.t(),
           max_concurrency: non_neg_integer(),
           name: atom,
           notification_metadata: map,
@@ -70,11 +72,11 @@ defmodule Ash.Reactor.Dsl.BulkCreate do
           return_stream?: boolean,
           rollback_on_error?: boolean,
           select: [atom],
-          skip_unknown_inputs: [atom],
+          skip_unknown_inputs: list(atom | String.t()),
           sorted?: boolean,
           stop_on_error?: boolean,
           success_state: :success | :partial_success,
-          tenant: [Ash.Reactor.Dsl.Tenant.t()],
+          tenant: nil | Ash.Reactor.Dsl.Tenant.t(),
           timeout: nil | timeout,
           transaction: :all | :batch | false,
           type: :bulk_create,
@@ -118,11 +120,13 @@ defmodule Ash.Reactor.Dsl.BulkCreate do
       identifier: :name,
       imports: [Reactor.Dsl.Argument],
       entities: [
+        context: [Ash.Reactor.Dsl.Context.__entity__()],
         actor: [Ash.Reactor.Dsl.Actor.__entity__()],
+        load: [Ash.Reactor.Dsl.ActionLoad.__entity__()],
         tenant: [Ash.Reactor.Dsl.Tenant.__entity__()],
         wait_for: [Reactor.Dsl.WaitFor.__entity__()]
       ],
-      singleton_entity_keys: [:actor, :tenant],
+      singleton_entity_keys: [:actor, :context, :load, :tenant],
       recursive_as: :steps,
       schema:
         [
@@ -158,13 +162,6 @@ defmodule Ash.Reactor.Dsl.BulkCreate do
             required: true,
             doc:
               "A collection of inputs to pass to the create action. Must implement the `Enumerable` protocol."
-          ],
-          load: [
-            type: {:wrap_list, :atom},
-            doc:
-              "A load statement to apply to records. Ignored if `return_records?` is not true.",
-            required: false,
-            default: []
           ],
           max_concurrency: [
             type: :non_neg_integer,
@@ -226,9 +223,9 @@ defmodule Ash.Reactor.Dsl.BulkCreate do
             required: false
           ],
           skip_unknown_inputs: [
-            type: {:wrap_list, :atom},
+            type: {:wrap_list, {:or, [:atom, :string]}},
             doc:
-              "A list of inputs that, if provided, will be ignored if they are not recognized by the action.",
+              "A list of inputs that, if provided, will be ignored if they are not recognized by the action. Use `:*` to indicate all unknown keys.",
             required: false
           ],
           sorted?: [

@@ -1,5 +1,55 @@
 # Notifiers
 
+## What are notifiers for?
+
+Notifiers allow you to tap into create, update and destroy actions on a resource. Notifiers are called after
+the current transaction is committed, which solves a lot of problems that can happen from performing a certain
+kind of side effect in your action code.
+
+A common example of one such issue is using Phoenix PubSub to notifyanother part of your app (often a LiveView or
+phoenix channel) of a change. If you send a message to another process while your transaction is still open, and
+that process tries to look up a record you just created, it won't find it yet, because your transaction is still open!
+
+Notifiers are a solution for a certain kind of side effect, what we call "at most once" effects. An example is
+sending an event to an analytics system, or our pusbub example above. It is "okay" if the event is fired and some
+error in that process prevents it from being sent.
+
+### When you really need an event to happen
+
+In these cases you are looking for something other than a notifier. For example, you may want to look into integrating
+https://hexdocs.pm/oban into your application, allowing you to commit a "job" in the same transaction as your changes, to be processed later.
+
+Alternatively, you could look into using `Reactor`, which is designed for writing "sagas" and has first-class support
+for Ash via the `AshReactor` extension.
+
+### Including a notifier in a resource
+
+If the notifier is also an extension, include it in the `notifiers` key:
+
+```elixir
+defmodule MyResource do
+  use Ash.Resource,
+    notifiers: [ExampleNotifier]
+end
+```
+
+Configuring a notifier for a specific action or actions can be a great way to avoid complexity in the implementation of a notifier. It allows you to avoid doing things like pattern matching on the action, and treat it more like a change module, that does its work whenever it is called.
+
+```elixir
+create :create do
+  notifiers [ExampleNotifier]
+end
+```
+
+When your notifier is not an extension, and you want it to run on all actions, include it this way to avoid unnecessary compile time dependencies:
+
+```elixir
+defmodule MyResource do
+  use Ash.Resource,
+    simple_notifiers: [ExampleNotifier]
+end
+```
+
 ## Built-in Notifiers
 
 Ash comes with a builtin pub_sub notifier: `Ash.Notifier.PubSub`. See the module documentation for more.
@@ -27,34 +77,6 @@ defmodule ExampleNotifier do
       Logger.info("A non-logged in user created a #{resource}")
     end
   end
-end
-```
-
-### Including a notifier in a resource
-
-If the notifier is also an extension, include it in the `notifiers` key:
-
-```elixir
-defmodule MyResource do
-  use Ash.Resource,
-    notifiers: [ExampleNotifier]
-end
-```
-
-Configuring a notifier for a specific action or actions can be a great way to avoid complexity in the implementation of a notifier. It allows you to avoid doing things like pattern matching on the action, and treat it more like a change module, that does its work whenever it is called.
-
-```elixir
-create :create do
-  notifiers [ExampleNotifier]
-end
-```
-
-When your notifier is not an extension, and you want it to run on all actions, include it this way to avoid unnecessary compile time dependencies:
-
-```elixir
-defmodule MyResource do
-  use Ash.Resource,
-    simple_notifiers: [ExampleNotifier]
 end
 ```
 

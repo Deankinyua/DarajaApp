@@ -1,3 +1,6 @@
+<img src="https://github.com/ash-project/reactor/blob/main/logos/reactor-logo-light-small.png?raw=true#gh-light-mode-only" alt="Logo Light" width="250">
+<img src="https://github.com/ash-project/reactor/blob/main/logos/reactor-logo-dark-small.png?raw=true#gh-dark-mode-only" alt="Logo Dark" width="250">
+
 # Reactor
 
 ![Elixir CI](https://github.com/ash-project/reactor/actions/workflows/elixir.yml/badge.svg)
@@ -34,7 +37,7 @@ The package can be installed by adding `reactor` to your list of dependencies in
 ```elixir
 def deps do
   [
-    {:reactor, "~> 0.8.4"}
+    {:reactor, "~> 0.10.0"}
   ]
 end
 ```

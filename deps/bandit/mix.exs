@@ -4,7 +4,7 @@ defmodule Bandit.MixProject do
   def project do
     [
       app: :bandit,
-      version: "1.5.2",
+      version: "1.5.7",
       elixir: "~> 1.13",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -32,7 +32,7 @@ defmodule Bandit.MixProject do
       {:thousand_island, "~> 1.0"},
       {:plug, "~> 1.14"},
       {:websock, "~> 0.5"},
-      {:hpax, "~> 0.1.1"},
+      {:hpax, "~> 1.0.0"},
       {:telemetry, "~> 0.4 or ~> 1.0"},
       {:req, "~> 0.3", only: [:dev, :test]},
       {:machete, ">= 0.0.0", only: [:dev, :test]},

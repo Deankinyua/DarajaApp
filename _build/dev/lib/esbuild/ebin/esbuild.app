@@ -1,5 +1,5 @@
 {application,esbuild,
-             [{config_mtime,1719649741},
+             [{config_mtime,1729332000},
               {optional_applications,[inets,ssl]},
               {applications,[kernel,stdlib,elixir,logger,inets,ssl,castore,
                              jason]},
@@ -8,6 +8,6 @@
                         'Elixir.Mix.Tasks.Esbuild',
                         'Elixir.Mix.Tasks.Esbuild.Install']},
               {registered,[]},
-              {vsn,"0.8.1"},
+              {vsn,"0.8.2"},
               {mod,{'Elixir.Esbuild',[]}},
               {env,[{default,[]}]}]}.

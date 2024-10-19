@@ -1,3 +1,55 @@
+## 1.5.7 (1 Aug 2024)
+
+### Changes
+
+* Timeouts encountered while reading a request body will now result in a `408
+  Request Timeout` being returned to the client by way of a `Bandit.HTTPError`
+  being raised. Previously, a `:more` tuple was returned (#385, thanks
+  @martosaur!)
+
+## 1.5.6 (1 Aug 2024)
+
+### Fixes
+
+* Improve handling of the end of stream condition for HTTP/2 requests that send
+  a body which isn't read by the Plug (#387, thanks @fekle!)
+
+## 1.5.5 (19 Jun 2024)
+
+### Changes
+
+* Add `domain: [:bandit]` to the metadata of all logger calls
+* Bring logging of early-connect HTTP2 errors under the `log_protocol_errors` umbrella
+
+## 1.5.4 (14 Jun 2024)
+
+### Changes
+
+* Raise HTTP/2 send window timeouts as stream errors so that they're logged as
+  protocol errors (thanks @hunterboerner!)
+
+## 1.5.3 (7 Jun 2024)
+
+### Changes
+
+* Add `:short` and `:verbose` options to `log_protocol_errors` configuration
+  option. **Change default value to `:short`, which will log protocol
+  errors as a single summary line instead of a full stack trace**
+* Raise `Bandit.HTTPError` errors when attempting to write to a closed client
+  connection (except for chunk/2 calls, which now return `{:error, reason}`).
+  Unless otherwise caught by the user, these errors will bubble out past the
+  configured plug and terminate the plug process. This closely mimics the
+  behaviour of Cowboy in this regard (#359)
+* Respect the plug-provided content-length on HEAD responses (#353, thanks
+  @meeq!)
+* Minor changes to how 'non-system process dictionary entries' are identified
+
+### Fixes
+
+* No longer closes on HTTP/1 requests smaller than the size of the HTTP/2
+  preamble
+* Close deflate contexts more eagerly for reduced memory use
+
 ## 1.5.2 (10 May 2024)
 
 ### Fixes

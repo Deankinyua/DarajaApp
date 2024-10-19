@@ -61,10 +61,12 @@ defmodule Gettext.Compiler do
         Gettext.ExtractorAgent.add_backend(__MODULE__)
       end
 
-      unquote(macros())
+      # These are the two functions we generate inside the backend.
 
-      # These are the two functions we generated inside the backend.
+      @impl Gettext.Backend
       def lgettext(locale, domain, msgctxt \\ nil, msgid, bindings)
+
+      @impl Gettext.Backend
       def lngettext(locale, domain, msgctxt \\ nil, msgid, msgid_plural, n, bindings)
 
       unquote(compile_po_files(env, known_po_files, opts))
@@ -95,7 +97,10 @@ defmodule Gettext.Compiler do
     end)
   end
 
-  defp macros() do
+  ## BEGIN of deprecated code
+  ## TODO: Remove this block once "use Gettext" is removed
+
+  defmacro generate_macros(_env) do
     quote unquote: false do
       defmacro dpgettext_noop(domain, msgctxt, msgid) do
         domain = Gettext.Compiler.expand_to_binary(domain, "domain", __MODULE__, __CALLER__)
@@ -312,11 +317,8 @@ defmodule Gettext.Compiler do
     end
   end
 
-  @doc """
-  Expands the given `msgid` in the given `env`, raising if it doesn't expand to
-  a binary.
-  """
-  @spec expand_to_binary(binary, binary, module, Macro.Env.t()) :: binary | no_return
+  @doc false
+  # TODO: remove me
   def expand_to_binary(term, what, gettext_module, env)
       when what in ~w(domain msgctxt msgid msgid_plural comment) do
     raiser = fn term ->
@@ -351,24 +353,19 @@ defmodule Gettext.Compiler do
     end
   end
 
-  @doc """
-  Appends the given comment to the list of extracted comments in the process dictionary.
-  """
-  @spec append_extracted_comment(binary) :: :ok
+  @doc false
   def append_extracted_comment(comment) do
     existing = Process.get(:gettext_comments, [])
     Process.put(:gettext_comments, [" " <> comment | existing])
     :ok
   end
 
-  @doc """
-  Returns all extracted comments in the process dictionary and clears them from the process
-  dictionary.
-  """
-  @spec get_and_flush_extracted_comments() :: [binary]
+  @doc false
   def get_and_flush_extracted_comments() do
     Enum.reverse(Process.delete(:gettext_comments) || [])
   end
+
+  ## END of deprecated block
 
   @doc """
   Logs a warning via `Logger.error/1` if `domain` contains slashes.

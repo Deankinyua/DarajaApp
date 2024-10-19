@@ -1,5 +1,5 @@
 {application,assent,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332002},
               {optional_applications,[jose,certifi,ssl_verify_fun,finch,mint,
                                       req,jason]},
               {applications,[kernel,stdlib,elixir,logger,crypto,public_key,

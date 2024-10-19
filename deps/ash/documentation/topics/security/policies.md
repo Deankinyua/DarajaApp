@@ -22,7 +22,7 @@ Then you can start defining policies for your resource.
 
 Each policy defined in a resource has two parts -
 
-- a condition, such as `action_type(:read)` or `actor_attribute_equals(:admin, true)` or `always()`. If this condition is true for a given action request, then the policy will be applied to the request.
+- a condition or a list of conditions, such as `action_type(:read)`, `[action_type(:read), actor_attribute_equals(:admin, true)]` or `always()`. If the condition, or all conditions if given a list are true for a given action request, then the policy will be applied to the request.
 - a set of policy checks, each of which will be evaluated individually if a policy applies to a request.
 
 If more than one policy applies to any given request (eg. an admin actor calls a read action) then **all applicable policies must pass** for the action to be performed.
@@ -53,6 +53,21 @@ There are four check types, all of which do what they sound like they do:
 - `forbid_unless` - if the check is false, the whole policy is forbidden.
 
 If a single check does not explicitly authorize or forbid the whole policy, then the flow moves to the next check. For example, if an `authorize_if` check does NOT return true, this _does not mean the whole policy is forbidden_ - it means that further checking is required.
+
+### Policy with `condition` inside `do` block
+
+A condition or a list of conditions can also be moved inside the `policy` block.
+
+This can make a really long list of conditions easier to read.
+
+```elixir
+policies do
+  policy do
+    condition always()
+    authorize_if always()
+  end
+end
+```
 
 ### How a Decision is Reached
 
@@ -123,12 +138,89 @@ policies do
     # unless the actor is an active user, forbid
     forbid_unless actor_attribute_equals(:active, true)
     # if the record is marked as public, authorize
-    authorize_if attribute(:public, true)
+    authorize_if expr(public == true)
     # if the actor is related to the data via that data's `owner` relationship, authorize
     authorize_if relates_to_actor_via(:owner)
   end
 end
 ```
+
+## Policy Groups
+
+Policy groups are a small abstraction over policies, that allow you to group policies together
+that have shared conditions. Each policy inside of a policy group have the same conditions as
+their group.
+
+```elixir
+policies do
+  policy_group actor_attribute_equals(:role, :owner) do
+    policy action_type(:read) do
+      authorize_if expr(owner_id == ^actor(:id))
+    end
+
+    policy action_type([:create, :update, :destroy]) do
+      authorize_if expr(owner_id == ^actor(:id))
+    end
+  end
+end
+```
+
+### Nesting Policy groups
+
+Policy groups can be nested. This can help when you have lots of policies and conditions.
+
+```elixir
+policies do
+  policy_group condition do
+    policy_group condition2 do
+       policy condition3 do
+         # This policy applies if condition, condition2, and condition3 are all true
+       end
+    end
+  end
+end
+```
+
+### Bypasses
+
+Policy groups can _not_ contain bypass policies. The purpose of policy groups is to make it easier to reason
+about the behavior of policies. When you see a policy group, you know that no policies inside that group will
+interact with policies in other policy groups, unless they also apply.
+
+### Access Type
+
+Policies have an "access type" that determines when they are applied. By default, `access_type` is `:filter`.
+When applied to a read action, `:filter` will result in a filtered read. For other action types, the filter will be evaluated
+to determine if a forbidden error should be raised.
+
+There are three access types, and they determine the _latest point in the process_ that any check contained by a policy can be applied.
+
+- `strict` - All checks must be applied statically. These result in a forbidden error if they are not met.
+- `filter` - All checks must be applied either statically or as a filter. These result in a filtered read if they are not met, and a
+  forbidden error for other action types.
+- `runtime` - This allows checks to be run _after_ the data has been read. It is exceedingly rare that you would need to use this access type.
+
+For example, given this policy:
+
+```elixir
+policy action(:read_hidden) do
+  authorize_if actor_attribute_equals(:is_admin, true)
+end
+```
+
+A non-admin using the `:read_hidden` action would see an empty list of records, rather than a forbidden error.
+
+However, with this policy
+
+```elixir
+policy action(:read_hidden) do
+  access_type :strict
+
+  authorize_if actor_attribute_equals(:is_admin, true)
+end
+```
+
+A non-admin using the `:read_hidden` action would see a forbidden error.
 
 ## Checks
 
@@ -229,8 +321,7 @@ defmodule MyApp.Checks.ActorOverAgeLimit do
   # A description is not necessary, as it will be derived from the filter, but one could be added
   # def describe(_opts), do: "actor is over the age limit"
 
-  # Filter checks don't have a `context` available to them
-  def filter(_options) do
+  def filter(_options, _authorizer, _opts) do
     expr(age_limit <= ^actor(:age))
   end
 end
@@ -259,7 +350,7 @@ Inline checks are filter checks, but are different enough to warrant their own d
 ```elixir
 policy action_type(:read) do
   # Allow records with the attribute `public` set to true to be read
-  authorize_if attribute(:public, true)
+  authorize_if expr(public == true)
 
   # Allow records with the attribute `level` less than the value of the `level`
   # argument to the action to be read
@@ -267,7 +358,26 @@ policy action_type(:read) do
 end
 ```
 
-Keep in mind that, for create actions, many `expr/1` checks won't make sense, and may return `false` when you wouldn't expect. Expression (and other filter) policies apply to "a synthesized result" of applying the action, so related values won't be available. For this reason, you may end up wanting to use other checks that are built for working against changesets, or only simple attribute-based filter checks. Custom checks may also be warranted here.
+##### Inline checks for create actions
+
+When using expressions inside of policies that apply to create actions, you may not reference the data being created. For example:
+
+```elixir
+policy action_type(:create) do
+  # This check is fine, as we only reference the actor
+  authorize_if expr(^actor(:admin) == true)
+  # This check is not, because it contains a reference to a field
+  authorize_if expr(status == :active)
+end
+```
+
+> ### Why can't we reference data in creates? {: .info}
+>
+> We cannot allow references to the data being created in create policies, because we do not yet know what the result of the action will be.
+> For updates and destroys, referencing the data always references the data _prior_ to the action being run, and so it is deterministic.
+
+If a policy that applies to creates, would result in a filter, you will get a `Ash.Error.Forbidden.CannotFilterCreates` at runtime explaining
+that you must change your check. Typically this means writing a custom `Ash.Policy.SimpleCheck` instead.
 
 Ash also comes with a set of built-in helpers for writing inline checks - see `Ash.Policy.Check.Builtins` for more information.
 
@@ -359,13 +469,44 @@ In results, forbidden fields will be replaced with a special value: `%Ash.Forbid
 
 When these fields are referred to in filters, they will be replaced with an expression that evaluates to `nil`. To support this behavior, only simple and filter checks are allowed in field policies.
 
+### Handling private fields in internal functions
+
+When calling internal functions like `Ash.read!/1`, private fields will by default always be shown.
+Even if field policies apply to the resource. You can change the default behaviour by setting the
+`private_fields` option on field policies.
+
+```elixir
+field_policies do
+  private_fields :include
+end
+```
+
+The different options are:
+
+- `:show` will always show private fields
+- `:hide` will always hide private fields
+- `:include` will let you to write field policies for private fields and private fields
+  will be shown or hidden depending on the outcome of the policy
+
+If you want to overwrite the default option that is `:show`, you can do that by setting a global flag:
+
+```elixir
+config :ash, :policies, private_fields: :include
+```
+
 ## Debugging and Logging
 
 ### Policy Breakdowns
 
 Policy breakdowns can be fetched on demand for a given forbidden error (either an `Ash.Error.Forbidden` that contains one ore more `Ash.Error.Forbidden.Policy` errors, or an `Ash.Error.Forbidden.Policy` error itself), via `Ash.Error.Forbidden.Policy.report/2`.
 
-Here is an example policy breakdown from tests:
+Additionally, you can request that they be provided in the error message for all raised forbidden errors (without the help text), by setting
+
+```elixir
+config :ash, :policies, show_policy_breakdowns?: true
+```
+
+Here is an example policy breakdown from tests.
 
 ```text
 Policy Breakdown

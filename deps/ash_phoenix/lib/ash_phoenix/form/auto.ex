@@ -152,81 +152,80 @@ defmodule AshPhoenix.Form.Auto do
 
       updater =
         fn opts, data, params ->
-          {type, constraints, tag, tag_value} =
-            determine_type(constraints, data, params)
+          if is_nil(data) and is_nil(params) do
+            opts
+          else
+            {type_name, type, constraints, tag, tag_value} =
+              determine_type(constraints, data, params)
 
-          {embed, constraints, fake_embedded?} =
-            if Ash.Type.embedded_type?(type) do
-              {type, constraints, false}
-            else
-              {AshPhoenix.Form.WrappedValue, [], true}
-            end
+            {embed, constraints, fake_embedded?} =
+              if Ash.Type.embedded_type?(type) do
+                {type, constraints, false}
+              else
+                {AshPhoenix.Form.WrappedValue, [], true}
+              end
 
-          prepare_source =
-            if fake_embedded? do
-              fn source ->
-                case source do
-                  %Ash.Changeset{} ->
-                    Ash.Changeset.set_context(source, %{type: type, constraints: constraints})
+            prepare_source =
+              if fake_embedded? do
+                fn source ->
+                  case source do
+                    %Ash.Changeset{} ->
+                      Ash.Changeset.set_context(source, %{type: type, constraints: constraints})
 
-                  %Ash.Query{} ->
-                    Ash.Query.set_context(source, %{type: type, constraints: constraints})
+                    %Ash.Query{} ->
+                      Ash.Query.set_context(source, %{type: type, constraints: constraints})
+                  end
                 end
               end
-            end
 
-          transform_params =
-            if fake_embedded? do
-              fn form, params, type ->
-                if type == :nested do
-                  AshPhoenix.Form.value(form, :value)
-                else
-                  params
+            transform_params =
+              if fake_embedded? do
+                union_param_transformer(type_name)
+              else
+                fn _form, params, _type ->
+                  set_tag_value(params, tag, tag_value)
                 end
-                |> set_tag_value(tag, tag_value)
               end
-            else
-              fn _form, params, _type ->
-                set_tag_value(params, tag, tag_value)
+
+            create_action =
+              if constraints[:create_action] do
+                Ash.Resource.Info.action(embed, constraints[:create_action])
+              else
+                Ash.Resource.Info.primary_action(embed, :create)
               end
-            end
 
-          create_action =
-            if constraints[:create_action] do
-              Ash.Resource.Info.action(embed, constraints[:create_action])
-            else
-              Ash.Resource.Info.primary_action(embed, :create)
-            end
+            update_action =
+              if constraints[:update_action] do
+                Ash.Resource.Info.action(embed, constraints[:update_action])
+              else
+                Ash.Resource.Info.primary_action(embed, :update)
+              end
 
-          update_action =
-            if constraints[:update_action] do
-              Ash.Resource.Info.action(embed, constraints[:update_action])
-            else
-              Ash.Resource.Info.primary_action(embed, :update)
-            end
-
-          Keyword.merge(opts,
-            resource: embed,
-            create_action: create_action.name,
-            update_action: update_action.name,
-            prepare_source: prepare_source,
-            transform_params: transform_params,
-            embed?: true,
-            forms:
-              Keyword.new(
-                embedded(embed, create_action, auto_opts) ++
-                  embedded(embed, update_action, auto_opts) ++
-                  unions(embed, create_action, auto_opts) ++
-                  unions(embed, update_action, auto_opts)
-              )
-          )
+            Keyword.merge(opts,
+              resource: embed,
+              create_action: create_action.name,
+              update_action: update_action.name,
+              prepare_source: prepare_source,
+              transform_params: transform_params,
+              embed?: true,
+              save_updates?: false,
+              forms:
+                Keyword.new(
+                  embedded(embed, create_action, auto_opts) ++
+                    embedded(embed, update_action, auto_opts) ++
+                    unions(embed, create_action, auto_opts) ++
+                    unions(embed, update_action, auto_opts)
+                )
+            )
+          end
         end
 
       {attr.name,
        [
          data: data,
          type: form_type,
-         updater: updater
+         updater: updater,
+         save_updates?: false
        ]}
     end)
     |> Keyword.new()
@@ -259,14 +258,32 @@ defmodule AshPhoenix.Form.Auto do
         #{inspect(constraints[:types], pretty: true)}
         """
 
-      {_key, config} ->
-        {config[:type], config[:constraints], config[:tag], config[:tag_value]}
+      {key, config} ->
+        {key, config[:type], config[:constraints], config[:tag], config[:tag_value]}
     end
   end
 
   defp determine_type(constraints, %Ash.Union{type: type}, _params) do
     config = constraints[:types][type]
-    {config[:type], config[:constraints], config[:tag], config[:tag_value]}
+    {type, config[:type], config[:constraints], config[:tag], config[:tag_value]}
+  end
+
+  defp determine_type(constraints, %AshPhoenix.Form.WrappedValue{value: nil}, params)
+       when params == %{} do
+    determine_type(constraints, nil, params)
+  end
+
+  defp determine_type(
+         constraints,
+         %AshPhoenix.Form.WrappedValue{value: %Ash.Union{} = union},
+         params
+       ) do
+    determine_type(constraints, union, params)
+  end
+
+  defp determine_type(constraints, nil, params) when params == %{} do
+    {key, config} = Enum.at(constraints[:types], 0)
+    {key, config[:type], config[:constraints], config[:tag], config[:tag_value]}
   end
 
   defp determine_type(constraints, data, params) do
@@ -291,8 +308,19 @@ defmodule AshPhoenix.Form.Auto do
         #{inspect(constraints[:types], pretty: true)}
         """
 
-      {_key, config} ->
-        {config[:type], config[:constraints], config[:tag], config[:tag_value]}
+      {key, config} ->
+        {key, config[:type], config[:constraints], config[:tag], config[:tag_value]}
+    end
+  end
+
+  @doc false
+  def union_param_transformer(type_name) do
+    fn form, params, validation_type ->
+      if validation_type == :nested do
+        %Ash.Union{type: type_name, value: AshPhoenix.Form.value(form, :value)}
+      else
+        params
+      end
     end
   end
 

@@ -1,5 +1,34 @@
 # Changelog for v3.x
 
+## v3.12.1 (2024-10-07)
+
+### Enhancements
+
+  * [sql] Support `:pool_count` option
+
+## v3.12.0 (2024-08-12)
+
+### Enhancements
+
+  * [Ecto.Migration] Add `Ecto.Migration.remove_if_exists/1`
+  * [Ecto.Migrator] Warn for migration files that end in `.ex`
+  * [sql] Support for subqueries in order_bys and group_bys
+  * [mysql] Add check constraints for MySQL
+  * [postgres] Add native bitstring support to Postgres
+  * [postgres] Add support for `:duration` type
+  * [postgres] Add `:plan` explain option for Postgres
+  * [tds] Allow passing `%Tds.Parameter` structs as params for named parameter usage in `query`
+
+### Bug fix
+
+  * [mysql] Type cast of integers in MySQL should use signed integers
+
+## v3.11.3 (2024-06-13)
+
+### Enhancements
+
+  * [mysql] Relax `myxql` dependency
+
 ## v3.11.2 (2024-05-18)
 
 ### Enhancements
@@ -15,7 +44,7 @@
 
 ### Bug fixes
 
-  * [Ecto.Migrations] Support `:prefix` on index rename
+  * [Ecto.Migration] Support `:prefix` on index rename
   * [Ecto.Migrator] Stop runner if migration fails
 
 ## v3.11.0 (2023-11-14)

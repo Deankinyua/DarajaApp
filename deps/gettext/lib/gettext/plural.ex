@@ -71,7 +71,9 @@ defmodule Gettext.Plural do
   or you can set it for each specific backend when you call `use Gettext`:
 
       defmodule MyApp.Gettext do
-        use Gettext, otp_app: :my_app, plural_forms: MyApp.Plural
+        use Gettext.Backend,
+          otp_app: :my_app,
+          plural_forms: MyApp.Plural
       end
 
   > #### Compile-time Configuration {: .warning}
@@ -360,7 +362,7 @@ defmodule Gettext.Plural do
 
   @doc false
   def plural_info(locale, messages_struct, plural_mod) do
-    ensure_compiled!(plural_mod)
+    Code.ensure_compiled!(plural_mod)
 
     if function_exported?(plural_mod, :init, 1) do
       pluralization_context =
@@ -377,7 +379,7 @@ defmodule Gettext.Plural do
 
   @doc false
   def plural_forms_header_impl(locale, messages_struct, plural_mod) do
-    ensure_compiled!(plural_mod)
+    Code.ensure_compiled!(plural_mod)
 
     plural_forms_header =
       if function_exported?(plural_mod, :plural_forms_header, 1) do
@@ -389,22 +391,6 @@ defmodule Gettext.Plural do
     else
       nplurals = plural_mod.nplurals(plural_info(locale, messages_struct, plural_mod))
       "nplurals=#{nplurals}"
-    end
-  end
-
-  # TODO: remove when we depend on Elixir 1.12+
-  if function_exported?(Code, :ensure_compiled!, 1) do
-    defp ensure_compiled!(mod), do: Code.ensure_compiled!(mod)
-  else
-    defp ensure_compiled!(mod) do
-      case Code.ensure_compiled(mod) do
-        {:module, ^mod} ->
-          mod
-
-        {:error, reason} ->
-          raise ArgumentError,
-                "could not load module #{inspect(mod)} due to reason #{inspect(reason)}"
-      end
     end
   end
 end

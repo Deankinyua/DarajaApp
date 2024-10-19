@@ -18,39 +18,44 @@ defmodule Ash.Actions.Read.AsyncLimiter do
   def async_or_inline(
         %{resource: resource, context: %{private: %{async_limiter: async_limiter}}} = query,
         opts,
+        last?,
         func
       )
-      when not is_nil(async_limiter) do
-    if Ash.DataLayer.data_layer_can?(resource, :async_engine) && !in_transaction?(query) do
-      claimed? =
-        Agent.get_and_update(async_limiter, fn
-          {limit, limit} ->
-            {false, {limit, limit}}
+      when not is_nil(async_limiter) and last? != true do
+    if Application.get_env(:ash, :disable_async?) do
+      func.()
+    else
+      if Ash.DataLayer.data_layer_can?(resource, :async_engine) && !in_transaction?(query) do
+        claimed? =
+          Agent.get_and_update(async_limiter, fn
+            {limit, limit} ->
+              {false, {limit, limit}}
 
-          {count, limit} ->
-            {true, {count + 1, limit}}
-        end)
+            {count, limit} ->
+              {true, {count + 1, limit}}
+          end)
 
-      if claimed? do
-        try do
-          Ash.ProcessHelpers.async(
-            fn ->
-              func.()
-            end,
-            opts
-          )
-        after
-          release(async_limiter)
+        if claimed? do
+          try do
+            Ash.ProcessHelpers.async(
+              fn ->
+                func.()
+              end,
+              opts
+            )
+          after
+            release(async_limiter)
+          end
+        else
+          func.()
         end
       else
         func.()
       end
-    else
-      func.()
     end
   end
 
-  def async_or_inline(_, _opts, func) do
+  def async_or_inline(_, _opts, _, func) do
     func.()
   end
 

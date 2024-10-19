@@ -7,7 +7,7 @@ defmodule AshAuthentication.Strategy.OAuth2.Plug do
   alias AshAuthentication.{Errors, Info, Strategy, Strategy.OAuth2}
   alias Assent.{Config, HTTPAdapter.Finch}
   alias Plug.Conn
-  import Ash.PlugHelpers, only: [get_actor: 1, get_tenant: 1]
+  import Ash.PlugHelpers, only: [get_actor: 1, get_tenant: 1, get_context: 1]
   import AshAuthentication.Plug.Helpers, only: [store_authentication_result: 2]
   import Plug.Conn
 
@@ -74,7 +74,7 @@ defmodule AshAuthentication.Strategy.OAuth2.Plug do
   end
 
   defp action_opts(conn) do
-    [actor: get_actor(conn), tenant: get_tenant(conn)]
+    [actor: get_actor(conn), tenant: get_tenant(conn), context: get_context(conn) || %{}]
     |> Enum.reject(&is_nil(elem(&1, 1)))
   end
 
@@ -82,13 +82,36 @@ defmodule AshAuthentication.Strategy.OAuth2.Plug do
     config =
       strategy
       |> Map.take(@raw_config_attrs)
-      |> Map.put(:http_adapter, {Finch, supervisor: AshAuthentication.Finch})
 
     with {:ok, config} <- add_secret_value(config, strategy, :base_url),
          {:ok, config} <- add_secret_value(config, strategy, :authorize_url, !!strategy.base_url),
          {:ok, config} <- add_secret_value(config, strategy, :client_id, !!strategy.base_url),
          {:ok, config} <- add_secret_value(config, strategy, :client_secret, !!strategy.base_url),
          {:ok, config} <- add_secret_value(config, strategy, :token_url, !!strategy.base_url),
+         {:ok, config} <-
+           add_secret_value(
+             config,
+             strategy,
+             :team_id,
+             strategy.assent_strategy != Assent.Strategy.Apple
+           ),
+         {:ok, config} <-
+           add_secret_value(
+             config,
+             strategy,
+             :private_key_id,
+             strategy.assent_strategy != Assent.Strategy.Apple
+           ),
+         {:ok, config} <-
+           add_secret_value(
+             config,
+             strategy,
+             :private_key_path,
+             strategy.assent_strategy != Assent.Strategy.Apple
+           ),
+         {:ok, config} <-
+           add_secret_value(config, strategy, :trusted_audiences, true),
+         {:ok, config} <- add_http_adapter(config),
          {:ok, config} <-
            add_secret_value(
              config,
@@ -151,8 +174,15 @@ defmodule AshAuthentication.Strategy.OAuth2.Plug do
       {:ok, nil} when allow_nil? ->
         {:ok, config}
 
+      {:ok, nil} ->
+        path = [:authentication, :strategies, strategy.name, secret_name]
+        {:error, Errors.MissingSecret.exception(path: path, resource: strategy.resource)}
+
       {:ok, value} when is_binary(value) and byte_size(value) > 0 ->
         {:ok, Map.put(config, secret_name, value)}
+
+      {:ok, list} when is_list(list) ->
+        {:ok, Map.put(config, secret_name, list)}
 
       {:error, reason} ->
         {:error, reason}
@@ -199,5 +229,16 @@ defmodule AshAuthentication.Strategy.OAuth2.Plug do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp add_http_adapter(config) do
+    http_adapter =
+      Application.get_env(
+        :ash_authentication,
+        :http_adapter,
+        {Finch, supervisor: AshAuthentication.Finch}
+      )
+
+    {:ok, Map.put(config, :http_adapter, http_adapter)}
   end
 end

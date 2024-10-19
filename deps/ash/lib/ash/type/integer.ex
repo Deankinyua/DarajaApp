@@ -23,10 +23,19 @@ defmodule Ash.Type.Integer do
   require Ash.Expr
 
   @impl true
+  def matches_type?(v, _) do
+    is_integer(v)
+  end
 
-  def cast_atomic(expr, constraints) do
+  @impl true
+  def cast_atomic(expr, _) do
+    {:atomic, expr}
+  end
+
+  @impl true
+  def apply_atomic_constraints(expr, constraints) do
     expr =
-      case {constraints[:max], constraints[:max]} do
+      case {constraints[:max], constraints[:min]} do
         {nil, nil} ->
           expr
 
@@ -36,7 +45,7 @@ defmodule Ash.Type.Integer do
               error(
                 Ash.Error.Changes.InvalidChanges,
                 message: "must be less than or equal to %{max}",
-                vars: %{max: max}
+                vars: %{max: ^max}
               )
             else
               ^expr
@@ -45,11 +54,11 @@ defmodule Ash.Type.Integer do
 
         {nil, min} ->
           Ash.Expr.expr(
-            if ^expr > ^min do
+            if ^expr < ^min do
               error(
                 Ash.Error.Changes.InvalidChanges,
                 message: "must be greater than or equal to %{min}",
-                vars: %{min: min}
+                vars: %{min: ^min}
               )
             else
               ^expr
@@ -63,14 +72,14 @@ defmodule Ash.Type.Integer do
                 error(
                   Ash.Error.Changes.InvalidChanges,
                   message: "must be greater than or equal to %{min}",
-                  vars: %{min: min}
+                  vars: %{min: ^min}
                 )
 
               ^expr > ^max ->
                 error(
                   Ash.Error.Changes.InvalidChanges,
                   message: "must be less than or equal to %{max}",
-                  vars: %{max: max}
+                  vars: %{max: ^max}
                 )
 
               true ->
@@ -79,7 +88,7 @@ defmodule Ash.Type.Integer do
           )
       end
 
-    {:atomic, expr}
+    {:ok, expr}
   end
 
   @impl true

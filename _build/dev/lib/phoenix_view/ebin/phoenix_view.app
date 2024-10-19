@@ -1,5 +1,5 @@
 {application,phoenix_view,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332001},
               {optional_applications,[phoenix_html]},
               {applications,[kernel,stdlib,elixir,eex,phoenix_html,
                              phoenix_template]},
@@ -7,4 +7,4 @@
               {modules,['Elixir.Phoenix.Template.UndefinedError',
                         'Elixir.Phoenix.View']},
               {registered,[]},
-              {vsn,"2.0.3"}]}.
+              {vsn,"2.0.4"}]}.

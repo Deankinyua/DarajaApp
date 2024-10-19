@@ -1,5 +1,5 @@
 {application,ash_sql,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332001},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir,logger,ash,ecto_sql,ecto]},
               {description,"Shared utilities for ecto-based sql data layers.\n"},
@@ -12,4 +12,4 @@
                         'Elixir.AshSql.Join','Elixir.AshSql.Query',
                         'Elixir.AshSql.Sort']},
               {registered,[]},
-              {vsn,"0.2.1"}]}.
+              {vsn,"0.2.36"}]}.

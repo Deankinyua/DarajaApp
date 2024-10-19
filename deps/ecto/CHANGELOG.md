@@ -1,5 +1,87 @@
 # Changelog for v3.x
 
+## v3.12.4 (2024-10-07)
+
+### Enhancements
+
+  * [Ecto.Repo] Use `persistent_term` for faster repository lookup
+  * [Ecto.Repo] Document new `:pool_count` option
+
+### Bug fixes
+
+  * [Ecto.Repo] Make `Ecto.Repo.reload` respect `source`
+
+## v3.12.3 (2024-09-06)
+
+### Bug fixes
+
+  * [Ecto.Changeset]  Allow associations to be cast/put inside of embedded schema changesets
+
+## v3.12.2 (2024-08-25)
+
+### Bug fixes
+
+  * [Ecto.Query] Allow `:prefix` to be set to any term
+  * [Ecto.Repo] Avoid overwriting ssl opts from url if already set in config
+
+## v3.12.1 (2024-08-13)
+
+### Enhancements
+
+  * [Ecto.Type] Add `Ecto.Type.parameterized?/2`
+
+### Bug fixes
+
+  * [Ecto.Enum] Fix dialyzer specification
+  * [Ecto.Query] Remove incorrect subquery parameter check
+
+## v3.12.0 (2024-08-12)
+
+### Enhancements
+
+  * [Ecto.Changeset] Allow `{message, opts}` to be given as message for several validation APIs
+  * [Ecto.Query] Introduce `is_named_binding` guard
+  * [Ecto.Query] Subqueries are now supported in `distinct`, `group_by`, `order_by` and `window` expressions
+  * [Ecto.Query] Allow `select_merge` to be used in more `insert_all` and subquery operations by merging distinct fields
+  * [Ecto.Query] Allow literal maps inside `dynamic/2`
+  * [Ecto.Query] Support macro expansion at the root level of `order_by`
+  * [Ecto.Query] Support preloading subquery sources in `from` and `join`
+  * [Ecto.Query] Allow map updates with dynamic values in `select`
+  * [Ecto.Query] Allow any data structure that implements the Enumerable protocol on the right side of `in`
+  * [Ecto.Repo] Support 2-arity preload functions that receive ids and the association metadata
+  * [Ecto.Repo] Allow Hot Updates on upsert queries in Postgres by removing duplicate fields during replace_all
+  * [Ecto.Repo] `insert_all` supports queries with only source
+  * [Ecto.Repo] `insert_all` supports queries with the update syntax
+  * [Ecto.Repo] Support `:allow_stale` on Repo struct/changeset operations
+  * [Ecto.Schema] Allow schema fields to be read-only via `:writable` option
+  * [Ecto.Schema] Add `:defaults_to_struct` option to `embeds_one`
+  * [Ecto.Schema] Support `:duration` type which maps to Elixir v1.17 duration
+  * [Ecto.Type] Bubble up custom cast errors of the inner type for `{:map, type}` and `{:array, type}`
+  * [Ecto.Type] Add `Ecto.Type.cast!/2`
+
+### Bug fixes
+
+  * [Ecto.Query] Ignore query prefix in CTE sources
+  * [Ecto.Query] Fix a bug of `preload` when a through association is used in a join and has a nested separate query preload. Now the association chain is no longer preloaded and we simply preload directly onto the loaded through association.
+  * [Ecto.Query] Fix inspection when select has `map/struct` modifiers
+  * [Ecto.Query] Disable query cache for `values` lists
+  * [Ecto.Repo] Convert fields to their sources in `insert_all`
+  * [Ecto.Repo] Raise if empty list is given to `{:replace, fields}`
+  * [Ecto.Repo] Validate `:prefix` is a string/binary, warn otherwise
+  * [Ecto.Repo] Remove compile dependency on `:preload_order` MFA in `has_many`
+
+### Adapter changes
+
+  * `distinct`, `group_by`, `order_by` and `window` expressions use the new `Ecto.Query.ByExpr`
+    struct rather than the old `Ecto.Query.QueryExpr` struct
+
+### Potential incompatibilities
+
+  * [Ecto.Changeset] Associations inside embeds have always been read-only. We now raise if you try to cast them inside a changeset (this was reverted in v3.12.3)
+  * [Ecto.ParameterizedType] Parameterized types are now represented internally as `{:parameterized, {mod, state}}`. While this representation is private, projects may have been relying on it, and therefore they need to adapt accordingly. Use `Ecto.ParameterizedType.init/2` to instantiate parameterized types.
+  * [Ecto.Query] Drop `:array_join` join type. It was added for Clickhouse support but it is no longer used
+  * [Ecto.Query] Validate `:prefix` is a string/binary (this was reverted in v3.12.2)
+
 ## v3.11.2 (2024-03-07)
 
 ### Bug fixes

@@ -2,7 +2,13 @@ defmodule AshAuthentication.Strategy.OAuth2 do
   alias __MODULE__.{Dsl, Transformer, Verifier}
 
   @moduledoc """
-  Strategy for authenticating using an OAuth 2.0 server as the source of truth.
+  Strategy for authenticating using any OAuth 2.0 server as the source of truth.
+
+  This authentication strategy provides registration and sign-in for users using a
+  remote [OAuth 2.0](https://oauth.net/2/) server as the source of truth. You
+  will be required to provide either a "register" or a "sign-in" action depending
+  on your configuration, which the strategy will attempt to validate for common
+  misconfigurations.
 
   This strategy wraps the excellent [`assent`](https://hex.pm/packages/assent)
   package, which provides OAuth 2.0 capabilities.
@@ -229,9 +235,12 @@ defmodule AshAuthentication.Strategy.OAuth2 do
     identity_resource: false,
     name: nil,
     nonce: false,
+    prevent_hijacking?: true,
     openid_configuration_uri: nil,
     openid_configuration: nil,
     private_key: nil,
+    private_key_id: nil,
+    private_key_path: nil,
     provider: :oauth2,
     redirect_uri: nil,
     register_action_name: nil,
@@ -240,6 +249,7 @@ defmodule AshAuthentication.Strategy.OAuth2 do
     sign_in_action_name: nil,
     site: nil,
     strategy_module: __MODULE__,
+    team_id: nil,
     token_url: nil,
     trusted_audiences: nil,
     user_url: nil
@@ -252,6 +262,8 @@ defmodule AshAuthentication.Strategy.OAuth2 do
   use Custom, entity: Dsl.dsl()
 
   @type secret :: nil | String.t() | {module, keyword}
+
+  @type secret_list :: nil | [any()] | {module, keyword}
 
   @type t :: %OAuth2{
           assent_strategy: module,
@@ -274,10 +286,13 @@ defmodule AshAuthentication.Strategy.OAuth2 do
           identity_relationship_user_id_attribute: atom,
           identity_resource: module | false,
           name: atom,
+          prevent_hijacking?: boolean,
           nonce: boolean | secret,
           openid_configuration_uri: nil | binary,
           openid_configuration: nil | map,
           private_key: secret,
+          private_key_id: secret,
+          private_key_path: secret,
           provider: atom,
           redirect_uri: secret,
           register_action_name: atom,
@@ -286,8 +301,9 @@ defmodule AshAuthentication.Strategy.OAuth2 do
           sign_in_action_name: atom,
           site: secret,
           strategy_module: module,
+          team_id: secret,
           token_url: secret,
-          trusted_audiences: nil | [binary],
+          trusted_audiences: secret_list,
           user_url: secret
         }
 

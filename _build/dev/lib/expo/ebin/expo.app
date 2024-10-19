@@ -1,5 +1,5 @@
 {application,expo,
-             [{config_mtime,1719649741},
+             [{config_mtime,1729332001},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir]},
               {description,"Low-level Gettext file handling (.po/.pot/.mo file writer and parser)."},
@@ -24,4 +24,4 @@
                         'Elixir.Mix.Tasks.Expo.Msguniq',
                         expo_plural_forms_parser,expo_po_parser]},
               {registered,[]},
-              {vsn,"0.5.2"}]}.
+              {vsn,"1.1.0"}]}.

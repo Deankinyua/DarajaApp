@@ -17,11 +17,6 @@ defmodule Ash.Type.Time do
   end
 
   @impl true
-  def cast_atomic(new_value, _constraints) do
-    {:atomic, new_value}
-  end
-
-  @impl true
   def cast_input(nil, _), do: {:ok, nil}
 
   def cast_input(value, _) do
@@ -29,7 +24,20 @@ defmodule Ash.Type.Time do
   end
 
   @impl true
+  def matches_type?(%Time{}, _), do: true
+  def matches_type?(_, _), do: false
+
+  @impl true
+  def cast_atomic(new_value, _constraints) do
+    {:atomic, new_value}
+  end
+
+  @impl true
   def cast_stored(nil, _), do: {:ok, nil}
+
+  def cast_stored(value, constraints) when is_binary(value) do
+    cast_input(value, constraints)
+  end
 
   def cast_stored(value, _) do
     Ecto.Type.load(:time, value)
@@ -42,4 +50,10 @@ defmodule Ash.Type.Time do
   def dump_to_native(value, _) do
     Ecto.Type.dump(:time, value)
   end
+end
+
+import Ash.Type.Comparable
+
+defcomparable left :: Time, right :: Time do
+  Time.compare(left, right)
 end

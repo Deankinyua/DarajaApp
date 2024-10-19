@@ -137,7 +137,7 @@ See the docs for more: `d:Ash.Resource.Dsl.relationships.has_one`
 has_many :tweets, MyApp.Tweet
 ```
 
-A `has_many` relationship means that there is a non-unique attribute (`destination_attribute`) on the destination resource that identifies a record with a matching unique attribute (`source_resource`) in the source. In the example above, the source attribute on `MyApp.User` is `:id` and the destination attribute on `MyApp.Tweet` is `:user_id`.
+A `has_many` relationship means that there is a non-unique attribute (`destination_attribute`) on the destination resource that identifies a record with a matching attribute (`source_attribute`) in the source. In the example above, the source attribute on `MyApp.User` is `:id` and the destination attribute on `MyApp.Tweet` is `:user_id`.
 
 A `has_many` relationship is similar to a `has_one` because the reference attribute exists on the destination resource. The only difference between this and `has_one` is that the destination attribute is not unique, and therefore will produce a list of related items. In the example above, `:tweets` corresponds to a list of `MyApp.Tweet` records.
 
@@ -287,21 +287,23 @@ has_many :higher_priority_tickets, __MODULE__ do
 end
 ```
 
-This can also be very useful when combined with multitenancy. Specifically, if you have a tenant resource like `Organization`,
+This can also be useful when combined with schema-based multitenancy. Specifically, if you have a tenant resource like `Organization`,
 you can use `no_attributes?` to do things like `has_many :employees, Employee, no_attributes?: true`, which lets you avoid having an
 unnecessary `organization_id` field on `Employee`. The same works in reverse: `has_one :organization, Organization, no_attributes?: true`
 allows relating the employee to their organization.
 
+You can also use `no_attributes? true` with attribute-based multitenancy in the same situation described above, to avoid an unnecessary second
+filter. If both resources have attribute multitenancy configured, they will already be filtered by `organization_id` by virtue of having
+set the tenant.
 
 > ### Caveats for using `no_attributes?` {: .warning}
 >
->  1. You can still manage relationships from one to the other, but "relate" and "unrelate" will have no effect, because there are no fields to change.
->  2. Loading the relationship on a list of resources will not behave as expected in all circumstances involving multitenancy. For example, if you get a list of `Organization` and then try to load `employees`, you would need to set a single tenant on the load query, meaning you'll get all organizations back with the set of employees from one tenant. This could eventually be solved, but for now it is considered an edge case.
-
+> 1.  You can still manage relationships from one to the other, but "relate" and "unrelate" will have no effect, because there are no fields to change.
+> 2.  Loading the relationship on a list of resources will not behave as expected in all circumstances involving multitenancy. For example, if you get a list of `Organization` and then try to load `employees`, you would need to set a single tenant on the load query, meaning you'll get all organizations back with the set of employees from one tenant. This could eventually be solved, but for now it is considered an edge case.
 
 ## Manual Relationships
 
-Manual relationships allow you to express complex or non-typical relationships between resources in a standard way. Individual data layers may interact with manual relationships in their own way, so see their corresponding guides. In general, you should try to use manual relationships sparingly, as you can do *a lot* with filters on relationships, and the `no_attributes?` flag.
+Manual relationships allow you to express complex or non-typical relationships between resources in a standard way. Individual data layers may interact with manual relationships in their own way, so see their corresponding guides. In general, you should try to use manual relationships sparingly, as you can do _a lot_ with filters on relationships, and the `no_attributes?` flag.
 
 ### Example
 
@@ -328,15 +330,15 @@ defmodule Helpdesk.Support.Ticket.Relationships.TicketsAboveThreshold do
   use Ash.Resource.ManualRelationship
   require Ash.Query
 
-  def load(records, _opts, %{query: query, actor: actor, authorize?: authorize?}) do
-    # Use existing records to limit resultds
+  def load(records, _opts, %{query: query} = context) do
+    # Use existing records to limit results
     rep_ids = Enum.map(records, & &1.id)
 
     {:ok,
      query
      |> Ash.Query.filter(representative_id in ^rep_ids)
      |> Ash.Query.filter(priority > representative.priority_threshold)
-     |> Helpdesk.Support.read!(actor: actor, authorize?: authorize?)
+     |> Ash.read!(Ash.Context.to_opts(context))
      # Return the items grouped by the primary key of the source, i.e representative.id => [...tickets above threshold]
      |> Enum.group_by(& &1.representative_id)}
   end
@@ -359,13 +361,47 @@ def load(records, _opts, %{query: query, ..}) do
 end
 ```
 
+### Query when loading with strict?: true
+
+When using `Ash.Query.load` or `Ash.load` with the `strict?: true` option, the query
+that is provided to the load callback might be configured with a select-statement that doesn't
+load the attributes you want to group matching results by. If your codebase utilizes the strict
+loading functionality, it is therefore recommended to use `Ash.Query.ensure_selected` on the
+query to ensure the required attributes are indeed fetched.
+
+```elixir
+
+# Here only :id & :priority is set, which will then configure the relationship query to only
+# select those attributes
+{:ok, rep} = Ash.load(representative, [tickets_above_threshold: [:id, :priority]], strict?: true)
+
+defmodule Helpdesk.Support.Ticket.Relationships.TicketsAboveThreshold do
+  use Ash.Resource.ManualRelationship
+  require Ash.Query
+
+  def load(records, _opts, %{query: query, actor: actor, authorize?: authorize?}) do
+    rep_ids = Enum.map(records, & &1.id)
+
+    {:ok,
+     query
+     # If this isn't added, representative_id would be set to %Ash.NotLoaded, causing the
+     # Enum.group_by call below to fail mapping results to the correct records.
+     |> Ash.Query.ensure_selected([:representative_id])
+     |> Ash.Query.filter(representative_id in ^rep_ids)
+     |> Ash.Query.filter(priority > representative.priority_threshold)
+     |> Helpdesk.Support.read!(actor: actor, authorize?: authorize?)
+     |> Enum.group_by(& &1.representative_id)}
+  end
+end
+```
+
 ### Fetching the records and then applying a query
 
 Lets say the records come from some totally unrelated source, or you can't just modify the query to fetch the records you need. You can fetch the records you need and then apply the query to them in memory.
 
 ```elixir
 def load(records, _opts, %{query: query, ..}) do
-  # fetch the data from the other source, which is capabale of sorting
+  # fetch the data from the other source, which is capable of sorting
   data = get_other_data(data, query.sort)
 
   query

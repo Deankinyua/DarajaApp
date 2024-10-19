@@ -8,6 +8,10 @@ defmodule Postgrex.Extensions.Timestamp do
   @min_year -4_713
   @plus_infinity 9_223_372_036_854_775_807
   @minus_infinity -9_223_372_036_854_775_808
+  @default_precision 6
+  # -1: user did not specify precision
+  # nil: coming from a super type that does not pass modifier for sub-type
+  @unspecified_precision [-1, nil]
 
   def init(opts), do: Keyword.get(opts, :allow_infinite_timestamps, false)
 
@@ -28,7 +32,7 @@ defmodule Postgrex.Extensions.Timestamp do
   def decode(infinity?) do
     quote location: :keep do
       <<8::int32(), microsecs::int64()>> ->
-        unquote(__MODULE__).microsecond_to_elixir(microsecs, unquote(infinity?))
+        unquote(__MODULE__).microsecond_to_elixir(microsecs, var!(mod), unquote(infinity?))
     end
   end
 
@@ -51,32 +55,33 @@ defmodule Postgrex.Extensions.Timestamp do
     <<8::int32(), secs * 1_000_000 + usec::int64()>>
   end
 
-  def microsecond_to_elixir(@plus_infinity, infinity?) do
+  def microsecond_to_elixir(@plus_infinity, _precision, infinity?) do
     if infinity?, do: :inf, else: raise_infinity("infinity")
   end
 
-  def microsecond_to_elixir(@minus_infinity, infinity?) do
+  def microsecond_to_elixir(@minus_infinity, _precision, infinity?) do
     if infinity?, do: :"-inf", else: raise_infinity("-infinity")
   end
 
-  def microsecond_to_elixir(microsecs, _infinity) do
-    split(microsecs)
+  def microsecond_to_elixir(microsecs, precision, _infinity) do
+    split(microsecs, precision)
   end
 
-  defp split(microsecs) when microsecs < 0 and rem(microsecs, 1_000_000) != 0 do
+  defp split(microsecs, precision) when microsecs < 0 and rem(microsecs, 1_000_000) != 0 do
     secs = div(microsecs, 1_000_000) - 1
     microsecs = 1_000_000 + rem(microsecs, 1_000_000)
-    split(secs, microsecs)
+    split(secs, microsecs, precision)
   end
 
-  defp split(microsecs) do
+  defp split(microsecs, precision) do
     secs = div(microsecs, 1_000_000)
     microsecs = rem(microsecs, 1_000_000)
-    split(secs, microsecs)
+    split(secs, microsecs, precision)
   end
 
-  defp split(secs, microsecs) do
-    NaiveDateTime.from_gregorian_seconds(secs + @gs_epoch, {microsecs, 6})
+  defp split(secs, microsecs, precision) do
+    precision = if precision in @unspecified_precision, do: @default_precision, else: precision
+    NaiveDateTime.from_gregorian_seconds(secs + @gs_epoch, {microsecs, precision})
   end
 
   defp raise_infinity(type) do

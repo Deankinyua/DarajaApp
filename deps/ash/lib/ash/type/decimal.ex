@@ -63,6 +63,10 @@ defmodule Ash.Type.Decimal do
   @impl true
   def constraints, do: @constraints
 
+  @impl true
+  def matches_type?(%Decimal{}, _), do: true
+  def matches_type?(_, _), do: false
+
   @doc false
   def decimal(value) do
     case cast_input(value, []) do
@@ -74,7 +78,9 @@ defmodule Ash.Type.Decimal do
     end
   end
 
-  def cast_atomic(expr, constraints) do
+  def cast_atomic(expr, _constraints), do: {:atomic, expr}
+
+  def apply_atomic_constraints(expr, constraints) do
     expr =
       Enum.reduce(constraints, expr, fn
         {:max, max}, expr ->
@@ -83,7 +89,7 @@ defmodule Ash.Type.Decimal do
               error(
                 Ash.Error.Changes.InvalidChanges,
                 message: "must be less than or equal to %{max}",
-                vars: %{max: max}
+                vars: %{max: ^max}
               )
             else
               ^expr
@@ -96,7 +102,7 @@ defmodule Ash.Type.Decimal do
               error(
                 Ash.Error.Changes.InvalidChanges,
                 message: "must be greater than or equal to %{min}",
-                vars: %{min: min}
+                vars: %{min: ^min}
               )
             else
               ^expr
@@ -110,8 +116,8 @@ defmodule Ash.Type.Decimal do
             else
               error(
                 Ash.Error.Changes.InvalidChanges,
-                message: "must be greater than %{min}",
-                vars: %{min: min}
+                message: "must be less than %{less_than}",
+                vars: %{less_than: ^less_than}
               )
             end
           )
@@ -123,14 +129,14 @@ defmodule Ash.Type.Decimal do
             else
               error(
                 Ash.Error.Changes.InvalidChanges,
-                message: "must be greater than %{min}",
-                vars: %{min: min}
+                message: "must be greater than %{greater_than}",
+                vars: %{greater_than: ^greater_than}
               )
             end
           )
       end)
 
-    {:atomic, expr}
+    {:ok, expr}
   end
 
   @impl true
@@ -220,4 +226,27 @@ defmodule Ash.Type.Decimal do
   @doc false
   def new(%Decimal{} = v), do: v
   def new(v), do: Decimal.new(v)
+
+  @impl true
+  def equal?(left, right) do
+    Decimal.eq?(left, right)
+  end
+end
+
+import Ash.Type.Comparable
+
+defcomparable left :: Decimal, right :: Integer do
+  Decimal.compare(left, Ash.Type.Decimal.new(right))
+end
+
+defcomparable left :: Decimal, right :: Decimal do
+  Decimal.compare(left, right)
+end
+
+defcomparable left :: Decimal, right :: Float do
+  Decimal.compare(Ash.Type.Decimal.new(left), right)
+end
+
+defcomparable left :: Decimal, right :: BitString do
+  Decimal.compare(left, Ash.Type.Decimal.new(right))
 end

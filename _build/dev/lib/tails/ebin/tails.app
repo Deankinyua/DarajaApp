@@ -1,5 +1,5 @@
 {application,tails,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332001},
               {compile_env,[{tails,[color_classes],error},
                             {tails,[colors_file],error},
                             {tails,[dark_themes],error},

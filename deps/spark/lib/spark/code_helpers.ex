@@ -11,7 +11,7 @@ defmodule Spark.CodeHelpers do
   def code_identifier(code) do
     code
     |> strip_meta()
-    |> :erlang.term_to_binary()
+    |> :erlang.term_to_iovec()
     |> :erlang.md5()
     |> Base.encode16()
   end
@@ -124,7 +124,7 @@ defmodule Spark.CodeHelpers do
     fn_name = generate_unique_function_name(value, key)
     function = generate_captured_function_caller(fn_name, arity, caller, context1, context2)
 
-    value = Spark.Dsl.Extension.expand_alias(value, caller)
+    value = Spark.Dsl.Extension.expand_alias_no_require(value, caller)
 
     {function,
      quote generated: true do
@@ -143,7 +143,7 @@ defmodule Spark.CodeHelpers do
     fn_name = generate_unique_function_name(value, key)
     function = generate_captured_function_caller(fn_name, fn_args, caller)
 
-    value = Spark.Dsl.Extension.expand_alias(value, caller)
+    value = Spark.Dsl.Extension.expand_alias_no_require(value, caller)
 
     {function,
      quote generated: true do
@@ -167,7 +167,7 @@ defmodule Spark.CodeHelpers do
     fn_name = generate_unique_function_name(value, key)
     function = generate_captured_function_caller(fn_name, fn_args, caller)
 
-    value = Spark.Dsl.Extension.expand_alias(value, caller)
+    value = Spark.Dsl.Extension.expand_alias_no_require(value, caller)
 
     {function,
      quote generated: true do
@@ -185,7 +185,7 @@ defmodule Spark.CodeHelpers do
     fn_args = generate_captured_arguments(body, caller)
     fn_name = generate_unique_function_name(value, key)
     function = generate_captured_function_caller(fn_name, fn_args, caller)
-    value = Spark.Dsl.Extension.expand_alias(value, caller)
+    value = Spark.Dsl.Extension.expand_alias_no_require(value, caller)
 
     {function,
      quote generated: true do
@@ -206,7 +206,17 @@ defmodule Spark.CodeHelpers do
       )
       when is_list(fn_args) do
     fn_name = generate_unique_function_name(quoted_fn, key)
-    function = generate_captured_function_caller(fn_name, fn_args, caller)
+
+    arity =
+      case fn_args do
+        [{:when, _, args_with_clause}] ->
+          Enum.count(args_with_clause) - 1
+
+        other ->
+          Enum.count(other)
+      end
+
+    function = generate_captured_function_caller(fn_name, arity, caller)
 
     function_defs =
       for clause <- clauses do
@@ -214,7 +224,7 @@ defmodule Spark.CodeHelpers do
           {:->, _, [[{:when, _, args_with_clause}], body]} ->
             args = :lists.droplast(args_with_clause)
             clause = List.last(args_with_clause)
-            body = Spark.Dsl.Extension.expand_alias(body, caller)
+            body = Spark.Dsl.Extension.expand_alias_no_require(body, caller)
 
             quote do
               def unquote(fn_name)(unquote_splicing(args)) when unquote(clause) do
@@ -223,7 +233,7 @@ defmodule Spark.CodeHelpers do
             end
 
           {:->, _, [args, body]} ->
-            body = Spark.Dsl.Extension.expand_alias(body, caller)
+            body = Spark.Dsl.Extension.expand_alias_no_require(body, caller)
 
             quote do
               def unquote(fn_name)(unquote_splicing(args)) do
@@ -235,7 +245,7 @@ defmodule Spark.CodeHelpers do
 
     {function,
      quote generated: true do
-       unless Module.defines?(__MODULE__, {unquote(fn_name), unquote(Enum.count(fn_args))}, :def) do
+       unless Module.defines?(__MODULE__, {unquote(fn_name), unquote(arity)}, :def) do
          @doc false
          unquote_splicing(function_defs)
        end

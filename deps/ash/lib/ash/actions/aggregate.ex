@@ -48,18 +48,22 @@ defmodule Ash.Actions.Aggregate do
         query = %{query | domain: domain}
 
         Ash.Tracer.span :action,
-                        Ash.Domain.Info.span_name(query.domain, query.resource, :aggregate),
+                        fn ->
+                          Ash.Domain.Info.span_name(query.domain, query.resource, :aggregate)
+                        end,
                         opts[:tracer] do
-          metadata = %{
-            domain: query.domain,
-            resource: query.resource,
-            resource_short_name: Ash.Resource.Info.short_name(query.resource),
-            aggregates: List.wrap(aggregates),
-            actor: opts[:actor],
-            tenant: opts[:tenant],
-            action: read_action,
-            authorize?: opts[:authorize?]
-          }
+          metadata = fn ->
+            %{
+              domain: query.domain,
+              resource: query.resource,
+              resource_short_name: Ash.Resource.Info.short_name(query.resource),
+              aggregates: List.wrap(aggregates),
+              actor: opts[:actor],
+              tenant: opts[:tenant],
+              action: read_action,
+              authorize?: opts[:authorize?]
+            }
+          end
 
           Ash.Tracer.telemetry_span [
                                       :ash,
@@ -77,9 +81,11 @@ defmodule Ash.Actions.Aggregate do
                      resource: query.resource,
                      limit: query.limit,
                      offset: query.offset,
+                     distinct: query.distinct,
                      domain: query.domain,
                      tenant: query.tenant,
-                     to_tenant: query.to_tenant
+                     to_tenant: query.to_tenant,
+                     context: query.context
                    }),
                  {:ok, result} <-
                    Ash.DataLayer.run_aggregate_query(
@@ -143,7 +149,7 @@ defmodule Ash.Actions.Aggregate do
                query.resource,
                name,
                kind,
-               set_opts(query, [], opts)
+               Keyword.put(set_opts(query, [], opts), :agg_name, name)
              ) do
           {:ok, aggregate} ->
             {:cont, {:ok, [aggregate | aggregates]}}
@@ -153,7 +159,12 @@ defmodule Ash.Actions.Aggregate do
         end
 
       {name, kind, agg_opts}, {:ok, aggregates} ->
-        case Ash.Query.Aggregate.new(query.resource, name, kind, set_opts(query, agg_opts, opts)) do
+        case Ash.Query.Aggregate.new(
+               query.resource,
+               name,
+               kind,
+               Keyword.put(set_opts(query, agg_opts, opts), :agg_name, name)
+             ) do
           {:ok, aggregate} ->
             {:cont, {:ok, [aggregate | aggregates]}}
 
@@ -161,6 +172,23 @@ defmodule Ash.Actions.Aggregate do
             {:halt, {:error, error}}
         end
     end)
+    |> case do
+      {:ok, aggregates} ->
+        {:ok,
+         Enum.map(aggregates, fn aggregate ->
+           Ash.Actions.Read.add_calc_context(
+             aggregate,
+             opts[:actor],
+             opts[:authorize?],
+             opts[:tenant],
+             opts[:tracer],
+             query.domain
+           )
+         end)}
+
+      other ->
+        other
+    end
   end
 
   defp set_opts(query, specified, others) do
@@ -178,7 +206,7 @@ defmodule Ash.Actions.Aggregate do
           query
 
         opts ->
-          Ash.Query.Aggregate.build_query(query, opts)
+          Ash.Query.Aggregate.build_query(query, nil, opts)
       end
 
     Keyword.put(agg_opts, :query, query)

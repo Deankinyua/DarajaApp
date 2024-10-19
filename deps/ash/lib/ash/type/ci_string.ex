@@ -62,6 +62,22 @@ defmodule Ash.Type.CiString do
       :printable,
       Keyword.take(constraints, [:max_length, :min_length])
     )
+    |> then(fn generator ->
+      cond do
+        constraints[:trim?] && constraints[:min_length] ->
+          StreamData.filter(generator, fn value ->
+            value |> String.trim() |> String.length() |> Kernel.>=(constraints[:min_length])
+          end)
+
+        constraints[:min_length] ->
+          StreamData.filter(generator, fn value ->
+            value |> String.length() |> Kernel.>=(constraints[:min_length])
+          end)
+
+        true ->
+          generator
+      end
+    end)
     |> StreamData.map(fn value ->
       value =
         case constraints[:casing] do
@@ -83,6 +99,10 @@ defmodule Ash.Type.CiString do
   def cast_atomic(new_value, _constraints) do
     {:atomic, new_value}
   end
+
+  @impl true
+  def matches_type?(%Ash.CiString{}, _), do: true
+  def matches_type?(_, _), do: false
 
   def apply_constraints(%Ash.CiString{} = value, constraints) do
     value

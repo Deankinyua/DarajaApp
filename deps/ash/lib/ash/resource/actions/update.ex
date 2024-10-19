@@ -11,11 +11,13 @@ defmodule Ash.Resource.Actions.Update do
     accept: nil,
     require_attributes: [],
     allow_nil_input: [],
+    skip_unknown_inputs: [],
     manual: nil,
     manual?: false,
     require_atomic?: Application.compile_env(:ash, :require_atomic_by_default?, true),
     atomic_upgrade?: true,
     atomic_upgrade_with: nil,
+    action_select: nil,
     notifiers: [],
     atomics: [],
     delay_global_validations?: false,
@@ -33,10 +35,12 @@ defmodule Ash.Resource.Actions.Update do
           type: :update,
           name: atom,
           manual: module | nil,
+          skip_unknown_inputs: list(atom | String.t()),
           atomic_upgrade?: boolean(),
-          atomic_upgrade_with: nil | atom(),
+          action_select: list(atom) | nil,
+          atomic_upgrade_with: atom() | nil,
           notifiers: list(module),
-          accept: list(atom),
+          accept: nil | list(atom),
           require_attributes: list(atom),
           allow_nil_input: list(atom),
           require_atomic?: boolean,
@@ -77,7 +81,7 @@ defmodule Ash.Resource.Actions.Update do
                   default: false
                 ],
                 atomic_upgrade_with: [
-                  type: {:one_of, [:atom, nil]},
+                  type: {:or, [:atom, nil]},
                   doc: """
                   Configure the read action used when performing atomic upgrades. Defaults to the primary read action.
                   """

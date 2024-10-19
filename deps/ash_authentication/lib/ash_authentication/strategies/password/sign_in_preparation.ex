@@ -25,8 +25,15 @@ defmodule AshAuthentication.Strategy.Password.SignInPreparation do
     identity_field = strategy.identity_field
     identity = Query.get_argument(query, identity_field)
 
+    query =
+      if is_nil(identity) do
+        # This will fail due to the argument being `nil`, so this is just a formality
+        Query.filter(query, false)
+      else
+        Query.filter(query, ^ref(identity_field) == ^identity)
+      end
+
     query
-    |> Query.filter(^ref(identity_field) == ^identity)
     |> check_sign_in_token_configuration(strategy)
     |> Query.before_action(fn query ->
       Ash.Query.ensure_selected(query, [strategy.hashed_password_field])
@@ -38,28 +45,23 @@ defmodule AshAuthentication.Strategy.Password.SignInPreparation do
         if strategy.hash_provider.valid?(
              password,
              Map.get(record, strategy.hashed_password_field)
-           ),
-           do:
-             {:ok,
-              [
-                maybe_generate_token(
-                  query.context[:token_type] || :user,
-                  record,
-                  strategy
-                )
-              ]},
-           else:
-             {:error,
-              AuthenticationFailed.exception(
-                strategy: strategy,
-                query: query,
-                caused_by: %{
-                  module: __MODULE__,
-                  action: query.action,
-                  resource: query.resource,
-                  message: "Password is not valid"
-                }
-              )}
+           ) do
+          token_type = query.context[:token_type] || :user
+
+          {:ok, [maybe_generate_token(token_type, record, strategy)]}
+        else
+          {:error,
+           AuthenticationFailed.exception(
+             strategy: strategy,
+             query: query,
+             caused_by: %{
+               module: __MODULE__,
+               action: query.action,
+               resource: query.resource,
+               message: "Password is not valid"
+             }
+           )}
+        end
 
       query, [] ->
         strategy.hash_provider.simulate()
@@ -118,11 +120,11 @@ defmodule AshAuthentication.Strategy.Password.SignInPreparation do
     end
   end
 
-  defp generate_token(purpose, record, strategy)
-       when is_integer(strategy.sign_in_token_lifetime) and purpose == :sign_in do
+  defp generate_token(:sign_in, record, strategy) when strategy.sign_in_tokens_enabled? do
     {:ok, token, _claims} =
-      Jwt.token_for_user(record, %{"purpose" => to_string(purpose)},
-        token_lifetime: strategy.sign_in_token_lifetime
+      Jwt.token_for_user(record, %{"purpose" => "sign_in"},
+        token_lifetime: strategy.sign_in_token_lifetime,
+        purpose: :sign_in
       )
 
     Ash.Resource.put_metadata(record, :token, token)

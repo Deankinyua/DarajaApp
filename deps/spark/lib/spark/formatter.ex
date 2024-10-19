@@ -281,7 +281,7 @@ defmodule Spark.Formatter do
       end
       |> List.wrap()
       |> Enum.flat_map(fn extension ->
-        case Code.ensure_compiled(extension) do
+        case is_atom(extension) and Code.ensure_compiled(extension) do
           {:module, module} ->
             if Spark.implements_behaviour?(module, Spark.Dsl.Extension) do
               [module]
@@ -371,7 +371,7 @@ defmodule Spark.Formatter do
   end
 
   defp entity_option_builders(entity) do
-    entity_args_to_drop = Spark.Dsl.Entity.arg_names(entity)
+    entity_args_to_drop = Spark.Dsl.Entity.required_arg_names(entity)
 
     entity.schema
     |> Keyword.drop(entity_args_to_drop)

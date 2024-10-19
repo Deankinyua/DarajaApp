@@ -961,6 +961,14 @@ defmodule Ecto.Integration.RepoTest do
 
       assert %Post{title: ^expected_title} = TestRepo.get(Post, expected_id)
     end
+
+    test "insert_all with query and source field" do
+      %{id: post_id} = TestRepo.insert!(%Post{})
+      TestRepo.insert!(%Permalink{url: "url", title: "title"})
+
+      source = from p in Permalink, select: %{url: p.title, post_id: ^post_id}
+      assert {1, _} = TestRepo.insert_all(Permalink, source)
+    end
   end
 
   @tag :invalid_prefix
@@ -1346,6 +1354,12 @@ defmodule Ecto.Integration.RepoTest do
 
       assert [%Post{title: "new title", visits: 13}] =
         TestRepo.all(from p in Post, select: %Post{p | title: "new title"})
+
+      assert [%Post{:title => "1", visits: -1}] =
+             TestRepo.all(from p in Post, select: %{p | visits: ^"-1"})
+
+      assert [%Post{title: "1", visits: -1}] =
+        TestRepo.all(from p in Post, select: %Post{p | visits: ^"-1"})
 
       assert_raise KeyError, fn ->
         TestRepo.all(from p in Post, select: %{p | unknown: "new title"})

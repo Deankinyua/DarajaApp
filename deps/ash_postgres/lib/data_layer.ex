@@ -1,5 +1,6 @@
 defmodule AshPostgres.DataLayer do
   require Ecto.Query
+  require Ash.Expr
 
   @manage_tenant %Spark.Dsl.Section{
     name: :manage_tenant,
@@ -287,6 +288,12 @@ defmodule AshPostgres.DataLayer do
         doc:
           "Whether or not to include this resource in the generated migrations with `mix ash.generate_migrations`"
       ],
+      storage_types: [
+        type: :keyword_list,
+        default: [],
+        doc:
+          "A keyword list of attribute names to the ecto type that should be used for that attribute. Only necessary if you need to override the defaults."
+      ],
       migration_types: [
         type: :keyword_list,
         default: [],
@@ -324,7 +331,7 @@ defmodule AshPostgres.DataLayer do
       ],
       skip_unique_indexes: [
         type: {:wrap_list, :atom},
-        default: false,
+        default: [],
         doc: "Skip generating unique indexes when generating migrations"
       ],
       unique_index_names: [
@@ -401,6 +408,8 @@ defmodule AshPostgres.DataLayer do
   A postgres data layer that leverages Ecto's postgres capabilities.
   """
 
+  require Igniter.Code.Common
+
   use Spark.Dsl.Extension,
     sections: @sections,
     verifiers: [
@@ -447,7 +456,7 @@ defmodule AshPostgres.DataLayer do
             |> Enum.sort()
             |> Enum.reverse()
             |> Enum.filter(fn file ->
-              Enum.any?(current_migrations, &String.starts_with?(file, &1))
+              Enum.any?(current_migrations, &String.starts_with?(Path.basename(file), &1))
             end)
             |> Enum.take(20)
             |> Enum.map(&String.trim_leading(&1, migrations_path))
@@ -484,31 +493,37 @@ defmodule AshPostgres.DataLayer do
           Mix.Task.run("ash_postgres.rollback", args ++ ["-r", inspect(repo), "-n", to_string(n)])
           Mix.Task.reenable("ash_postgres.rollback")
 
-          first_tenant = repo.list_tenants() |> Enum.at(0)
+          tenant_files =
+            tenant_migrations_path
+            |> Path.join("**/*.exs")
+            |> Path.wildcard()
+            |> Enum.sort()
+            |> Enum.reverse()
 
-          if first_tenant do
-            current_tenant_migrations =
-              Ecto.Query.from(row in "schema_migrations",
-                select: row.version
-              )
-              |> repo.all(prefix: first_tenant)
-              |> Enum.map(&to_string/1)
+          if !Enum.empty?(tenant_files) do
+            first_tenant = repo.all_tenants() |> Enum.at(0)
 
-            tenant_files =
-              tenant_migrations_path
-              |> Path.join("**/*.exs")
-              |> Path.wildcard()
-              |> Enum.sort()
-              |> Enum.reverse()
-              |> Enum.filter(fn file ->
-                Enum.any?(current_tenant_migrations, &String.starts_with?(file, &1))
-              end)
-              |> Enum.take(20)
-              |> Enum.map(&String.trim_leading(&1, tenant_migrations_path))
-              |> Enum.with_index()
-              |> Enum.map(fn {file, index} -> "#{index + 1}: #{file}" end)
+            if first_tenant do
+              current_tenant_migrations =
+                Ecto.Query.from(row in "schema_migrations",
+                  select: row.version
+                )
+                |> repo.all(prefix: first_tenant)
+                |> Enum.map(&to_string/1)
 
-            if !Enum.empty?(tenant_files) do
+              tenant_files =
+                tenant_files
+                |> Enum.filter(fn file ->
+                  Enum.any?(
+                    current_tenant_migrations,
+                    &String.starts_with?(Path.basename(file), &1)
+                  )
+                end)
+                |> Enum.take(20)
+                |> Enum.map(&String.trim_leading(&1, tenant_migrations_path))
+                |> Enum.with_index()
+                |> Enum.map(fn {file, index} -> "#{index + 1}: #{file}" end)
+
               n =
                 Mix.shell().prompt(
                   """
@@ -565,13 +580,7 @@ defmodule AshPostgres.DataLayer do
 
     []
     |> AshPostgres.Mix.Helpers.repos!(args)
-    |> Enum.all?(fn repo ->
-      []
-      |> AshPostgres.Mix.Helpers.tenant_migrations_path(repo)
-      |> Path.join("**/*.exs")
-      |> Path.wildcard()
-      |> Enum.empty?()
-    end)
+    |> Enum.all?(&(not has_tenant_migrations?(&1)))
     |> case do
       true ->
         :ok
@@ -586,11 +595,21 @@ defmodule AshPostgres.DataLayer do
     Mix.Task.run("ash_postgres.drop", args)
   end
 
+  defp has_tenant_migrations?(repo) do
+    []
+    |> AshPostgres.Mix.Helpers.tenant_migrations_path(repo)
+    |> Path.join("**/*.exs")
+    |> Path.wildcard()
+    |> Enum.empty?()
+  end
+
   import Ecto.Query, only: [from: 2, subquery: 1]
 
   @impl true
   def can?(_, :async_engine), do: true
   def can?(_, :bulk_create), do: true
+
+  def can?(_, :action_select), do: true
 
   def can?(resource, :update_query) do
     # We can't currently support updating a record from a query
@@ -733,7 +752,9 @@ defmodule AshPostgres.DataLayer do
 
   @impl true
   def return_query(query, resource) do
-    AshSql.Query.return_query(query, resource)
+    query
+    |> AshSql.Bindings.default_bindings(resource, AshPostgres.SqlImplementation)
+    |> AshSql.Query.return_query(resource)
   end
 
   @impl true
@@ -751,7 +772,7 @@ defmodule AshPostgres.DataLayer do
            query,
            AshSql.repo_opts(repo, AshPostgres.SqlImplementation, nil, nil, resource)
          )
-         |> remap_mapped_fields(query)}
+         |> AshSql.Query.remap_mapped_fields(query)}
       end)
     end
   rescue
@@ -768,7 +789,8 @@ defmodule AshPostgres.DataLayer do
 
     functions = [
       AshPostgres.Functions.Like,
-      AshPostgres.Functions.ILike
+      AshPostgres.Functions.ILike,
+      AshPostgres.Functions.Binding
     ]
 
     functions =
@@ -934,7 +956,7 @@ defmodule AshPostgres.DataLayer do
         path
       ) do
     {calculations_require_rewrite, aggregates_require_rewrite, query} =
-      rewrite_nested_selects(query)
+      AshSql.Query.rewrite_nested_selects(query)
 
     case lateral_join_query(
            query,
@@ -956,107 +978,17 @@ defmodule AshPostgres.DataLayer do
             lateral_join_query,
             AshSql.repo_opts(repo, AshPostgres.SqlImplementation, nil, nil, source_resource)
           )
-          |> remap_mapped_fields(query, calculations_require_rewrite, aggregates_require_rewrite)
+          |> AshSql.Query.remap_mapped_fields(
+            query,
+            calculations_require_rewrite,
+            aggregates_require_rewrite
+          )
 
         {:ok, results}
 
       {:error, error} ->
         {:error, error}
     end
-  end
-
-  defp rewrite_nested_selects(query) do
-    case query.select do
-      %Ecto.Query.SelectExpr{
-        expr:
-          {:merge, [],
-           [
-             {:&, [], [0]},
-             {:%{}, [], merging}
-           ]}
-      } = select ->
-        {merging, aggregate_merges} = remap_sub_select(merging, :aggregates)
-
-        {new_sub_selects, calculation_merges} =
-          remap_sub_select(merging, :calculations)
-
-        new_query =
-          %{
-            query
-            | select: %{select | expr: {:merge, [], [{:&, [], [0]}, {:%{}, [], new_sub_selects}]}}
-          }
-
-        {calculation_merges, aggregate_merges, new_query}
-
-      _ ->
-        {%{}, %{}, query}
-    end
-  end
-
-  # sobelow_skip ["DOS.StringToAtom"]
-  defp remap_sub_select(merging, sub_key) do
-    case Keyword.fetch(merging, sub_key) do
-      {:ok, {:%{}, [], nested}} ->
-        Enum.reduce(nested, {Keyword.delete(merging, sub_key), %{}}, fn {name, expr},
-                                                                        {subselect, remapping} ->
-          new_name = String.to_atom("__#{sub_key}__#{name}")
-          {Keyword.put(subselect, new_name, expr), Map.put(remapping, new_name, name)}
-        end)
-
-      :error ->
-        {merging, %{}}
-    end
-  end
-
-  defp remap_mapped_fields(
-         results,
-         query,
-         calculations_require_rewrite \\ %{},
-         aggregates_require_rewrite \\ %{}
-       ) do
-    calculation_names = query.__ash_bindings__.calculation_names
-    aggregate_names = query.__ash_bindings__.aggregate_names
-
-    if Enum.empty?(calculation_names) and Enum.empty?(aggregate_names) and
-         Enum.empty?(calculations_require_rewrite) and Enum.empty?(aggregates_require_rewrite) do
-      results
-    else
-      Enum.map(results, fn result ->
-        result
-        |> remap_to_nested(:calculations, calculations_require_rewrite)
-        |> remap_to_nested(:aggregates, aggregates_require_rewrite)
-        |> remap(:calculations, calculation_names)
-        |> remap(:aggregates, aggregate_names)
-      end)
-    end
-  end
-
-  defp remap_to_nested(record, _subfield, mapping) when mapping == %{} do
-    record
-  end
-
-  defp remap_to_nested(record, subfield, mapping) do
-    Map.update!(record, subfield, fn subfield_values ->
-      Enum.reduce(mapping, subfield_values, fn {source, dest}, subfield_values ->
-        subfield_values
-        |> Map.put(dest, Map.get(record, source))
-        |> Map.delete(source)
-      end)
-    end)
-  end
-
-  defp remap(record, _subfield, mapping) when mapping == %{} do
-    record
-  end
-
-  defp remap(record, subfield, mapping) do
-    Map.update!(record, subfield, fn subfield_values ->
-      Enum.reduce(mapping, subfield_values, fn {dest, source}, subfield_values ->
-        subfield_values
-        |> Map.put(dest, Map.get(subfield_values, source))
-        |> Map.delete(source)
-      end)
-    end)
   end
 
   defp lateral_join_query(
@@ -1073,6 +1005,13 @@ defmodule AshPostgres.DataLayer do
         )
       else
         query
+      end
+
+    base_query =
+      if Map.get(relationship, :from_many?) do
+        from(row in base_query, limit: 1)
+      else
+        base_query
       end
 
     base_query =
@@ -1105,24 +1044,47 @@ defmodule AshPostgres.DataLayer do
 
     source_pkey = Ash.Resource.Info.primary_key(source_query.resource)
 
-    source_query.resource
-    |> Ash.Query.set_context(%{:data_layer => source_query.context[:data_layer]})
-    |> Ash.Query.set_tenant(source_query.tenant)
-    |> set_lateral_join_prefix(query)
-    |> case do
-      %{valid?: true} = query ->
-        Ash.Query.data_layer_query(query)
-
-      query ->
-        {:error, query}
-    end
-    |> case do
+    case lateral_join_source_query(query, source_query) do
       {:ok, data_layer_query} ->
         source_values = Enum.map(root_data, &Map.get(&1, source_attribute))
 
+        source_filter =
+          case source_pkey do
+            [] ->
+              Ecto.Query.dynamic([source], field(source, ^source_attribute) in ^source_values)
+
+            [field] ->
+              values = Enum.map(root_data, &Map.get(&1, field))
+              Ecto.Query.dynamic([source], field(source, ^field) in ^values)
+
+            fields ->
+              Enum.reduce(root_data, nil, fn record, acc ->
+                row_match =
+                  Enum.reduce(fields, nil, fn field, acc ->
+                    if is_nil(acc) do
+                      Ecto.Query.dynamic(
+                        [source],
+                        field(source, ^field) == ^Map.get(record, field)
+                      )
+                    else
+                      Ecto.Query.dynamic(
+                        [source],
+                        field(source, ^field) == ^Map.get(record, field) and ^acc
+                      )
+                    end
+                  end)
+
+                if is_nil(acc) do
+                  row_match
+                else
+                  Ecto.Query.dynamic(^row_match or ^acc)
+                end
+              end)
+          end
+
         data_layer_query =
           from(source in data_layer_query,
-            where: field(source, ^source_attribute) in ^source_values
+            where: ^source_filter
           )
 
         if query.__ash_bindings__[:__order__?] do
@@ -1164,44 +1126,27 @@ defmodule AshPostgres.DataLayer do
     source_values = Enum.map(root_data, &Map.get(&1, source_attribute))
     source_pkey = Ash.Resource.Info.primary_key(source_query.resource)
 
-    through_resource
-    |> Ash.Query.new()
-    |> Ash.Query.set_context(through_relationship.context)
-    |> Ash.Query.do_filter(through_relationship.filter)
-    |> Ash.Query.set_tenant(source_query.tenant)
-    |> Ash.Query.put_context(:data_layer, %{
-      start_bindings_at: query.__ash_bindings__.current
-    })
-    |> set_lateral_join_prefix(query)
-    |> case do
-      %{valid?: true} = through_query ->
-        through_query
-        |> Ash.Query.data_layer_query()
-
-      query ->
-        {:error, query}
-    end
-    |> case do
-      {:ok, through_query} ->
-        source_query.resource
+    case lateral_join_source_query(query, source_query) do
+      {:ok, data_layer_query} ->
+        through_resource
         |> Ash.Query.new()
-        |> Ash.Query.set_context(relationship.context)
-        |> Ash.Query.set_context(%{:data_layer => source_query.context[:data_layer]})
         |> Ash.Query.put_context(:data_layer, %{
-          start_bindings_at: through_query.__ash_bindings__.current
+          start_bindings_at: data_layer_query.__ash_bindings__.current
         })
+        |> Ash.Query.set_context(through_relationship.context)
+        |> Ash.Query.do_filter(through_relationship.filter)
+        |> Ash.Query.set_tenant(source_query.tenant)
         |> set_lateral_join_prefix(query)
-        |> Ash.Query.do_filter(relationship.filter)
         |> case do
-          %{valid?: true} = query ->
-            query
+          %{valid?: true} = through_query ->
+            through_query
             |> Ash.Query.data_layer_query()
 
           query ->
             {:error, query}
         end
         |> case do
-          {:ok, data_layer_query} ->
+          {:ok, through_query} ->
             if query.__ash_bindings__[:__order__?] do
               subquery =
                 subquery(
@@ -1214,14 +1159,14 @@ defmodule AshPostgres.DataLayer do
                         source_query,
                         relationship.through
                       ),
-                    as: ^query.__ash_bindings__.current,
+                    as: ^data_layer_query.__ash_bindings__.current,
                     on:
                       field(through, ^destination_attribute_on_join_resource) ==
                         field(destination, ^destination_attribute),
                     where:
                       field(through, ^source_attribute_on_join_resource) ==
                         field(
-                          parent_as(^through_query.__ash_bindings__.current),
+                          parent_as(^0),
                           ^source_attribute
                         )
                   )
@@ -1252,14 +1197,14 @@ defmodule AshPostgres.DataLayer do
                         source_query,
                         relationship.through
                       ),
-                    as: ^query.__ash_bindings__.current,
+                    as: ^data_layer_query.__ash_bindings__.current,
                     on:
                       field(through, ^destination_attribute_on_join_resource) ==
                         field(destination, ^destination_attribute),
                     where:
                       field(through, ^source_attribute_on_join_resource) ==
                         field(
-                          parent_as(^through_query.__ash_bindings__.current),
+                          parent_as(^0),
                           ^source_attribute
                         )
                   )
@@ -1289,6 +1234,34 @@ defmodule AshPostgres.DataLayer do
     end
   end
 
+  defp lateral_join_source_query(
+         %{
+           __ash_bindings__: %{
+             lateral_join_source_query: lateral_join_source_query
+           }
+         },
+         source_query
+       )
+       when not is_nil(lateral_join_source_query) do
+    {:ok,
+     lateral_join_source_query
+     |> set_subquery_prefix(source_query, lateral_join_source_query.__ash_bindings__.resource)}
+  end
+
+  defp lateral_join_source_query(query, source_query) do
+    source_query.resource
+    |> Ash.Query.set_context(%{:data_layer => source_query.context[:data_layer]})
+    |> Ash.Query.set_tenant(source_query.tenant)
+    |> set_lateral_join_prefix(query)
+    |> case do
+      %{valid?: true} = query ->
+        Ash.Query.data_layer_query(query)
+
+      query ->
+        {:error, query}
+    end
+  end
+
   @doc false
   def set_subquery_prefix(data_layer_query, source_query, resource) do
     repo = AshPostgres.DataLayer.Info.repo(resource, :mutate)
@@ -1302,7 +1275,7 @@ defmodule AshPostgres.DataLayer do
         query_tenant =
           case source_query do
             %{__tenant__: tenant} -> tenant
-            %{tenant: tenant} -> tenant
+            %{tenant: tenant} -> Ash.ToTenant.to_tenant(tenant, resource)
             _ -> nil
           end
 
@@ -1334,8 +1307,8 @@ defmodule AshPostgres.DataLayer do
   end
 
   @impl true
-  def resource_to_query(resource, _) do
-    AshSql.Query.resource_to_query(resource, AshPostgres.SqlImplementation)
+  def resource_to_query(resource, domain) do
+    AshSql.Query.resource_to_query(resource, AshPostgres.SqlImplementation, domain)
   end
 
   @impl true
@@ -1343,7 +1316,7 @@ defmodule AshPostgres.DataLayer do
     ecto_changeset =
       case changeset.data do
         %Ash.Changeset.OriginalDataNotAvailable{} ->
-          changeset.resource.__struct__
+          changeset.resource.__struct__()
 
         data ->
           data
@@ -1397,10 +1370,17 @@ defmodule AshPostgres.DataLayer do
               query =
                 if options[:return_records?] do
                   {:ok, query} =
-                    query
-                    |> Ecto.Query.exclude(:select)
-                    |> Ecto.Query.select([row], row)
-                    |> add_calculations(options[:calculations] || [], resource)
+                    if options[:action_select] do
+                      query
+                      |> Ecto.Query.exclude(:select)
+                      |> Ecto.Query.select([row], struct(row, ^options[:action_select]))
+                      |> add_calculations(options[:calculations] || [], resource)
+                    else
+                      query
+                      |> Ecto.Query.exclude(:select)
+                      |> Ecto.Query.select([row], row)
+                      |> add_calculations(options[:calculations] || [], resource)
+                    end
 
                   query
                 else
@@ -1417,7 +1397,7 @@ defmodule AshPostgres.DataLayer do
                 end)
 
               if options[:return_records?] do
-                {:ok, remap_mapped_fields(results, query)}
+                {:ok, AshSql.Query.remap_mapped_fields(results, query)}
               else
                 :ok
               end
@@ -1496,9 +1476,20 @@ defmodule AshPostgres.DataLayer do
                 end)
           end
 
+        has_exists? =
+          Enum.any?(atomics, fn {_key, expr} ->
+            Ash.Filter.find(expr, fn
+              %Ash.Query.Exists{} ->
+                true
+
+              _ ->
+                false
+            end)
+          end)
+
         needs_to_join? =
           requires_adding_inner_join? ||
-            query.limit || query.offset
+            query.limit || query.offset || has_exists?
 
         query =
           if needs_to_join? do
@@ -1512,7 +1503,7 @@ defmodule AshPostgres.DataLayer do
                     {:ok, from(row in Ecto.Query.subquery(root_query), []), atomics != []}
                   end
 
-                !Enum.empty?(query.joins) ->
+                !Enum.empty?(query.joins) || has_exists? ->
                   with root_query <- Ecto.Query.exclude(root_query, :order_by),
                        {:ok, root_query} <-
                          AshSql.Atomics.select_atomics(resource, root_query, atomics) do
@@ -1609,7 +1600,7 @@ defmodule AshPostgres.DataLayer do
     ecto_changeset =
       case changeset.data do
         %Ash.Changeset.OriginalDataNotAvailable{} ->
-          changeset.resource.__struct__
+          changeset.resource.__struct__()
 
         data ->
           data
@@ -1644,10 +1635,19 @@ defmodule AshPostgres.DataLayer do
           query =
             if options[:return_records?] do
               {:ok, query} =
-                query
-                |> Ecto.Query.exclude(:select)
-                |> Ecto.Query.select([row], row)
-                |> add_calculations(options[:calculations] || [], resource)
+                case options[:action_select] do
+                  nil ->
+                    query
+                    |> Ecto.Query.exclude(:select)
+                    |> Ecto.Query.select([row], row)
+                    |> add_calculations(options[:calculations] || [], resource)
+
+                  action_select ->
+                    query
+                    |> Ecto.Query.exclude(:select)
+                    |> Ecto.Query.select([row], struct(row, ^action_select))
+                    |> add_calculations(options[:calculations] || [], resource)
+                end
 
               query
             else
@@ -1663,7 +1663,7 @@ defmodule AshPostgres.DataLayer do
             end)
 
           if options[:return_records?] do
-            {:ok, remap_mapped_fields(results, query)}
+            {:ok, AshSql.Query.remap_mapped_fields(results, query)}
           else
             :ok
           end
@@ -1735,7 +1735,14 @@ defmodule AshPostgres.DataLayer do
 
     opts =
       if options.return_records? do
-        Keyword.put(opts, :returning, true)
+        returning =
+          case options[:action_select] do
+            nil -> true
+            [] -> Ash.Resource.Info.primary_key(resource)
+            fields -> fields
+          end
+
+        Keyword.put(opts, :returning, returning)
       else
         opts
       end
@@ -1783,6 +1790,7 @@ defmodule AshPostgres.DataLayer do
             :conflict_target,
             conflict_target(
               resource,
+              options[:identity],
               options[:upsert_keys] || Ash.Resource.Info.primary_key(resource)
             )
           )
@@ -1910,7 +1918,9 @@ defmodule AshPostgres.DataLayer do
       upsert_fields --
         Keyword.keys(Enum.at(changesets, 0).atomics)
 
-    Enum.map(fields_to_upsert, fn upsert_field ->
+    fields_to_upsert
+    |> Enum.uniq()
+    |> Enum.map(fn upsert_field ->
       # for safety, we check once more at the end that all values in
       # upsert_fields are names of attributes. This is because
       # below we use `literal/1` to bring them into the query
@@ -1947,7 +1957,8 @@ defmodule AshPostgres.DataLayer do
     end)
   end
 
-  defp get_source_for_upsert_field(field, resource) do
+  @doc false
+  def get_source_for_upsert_field(field, resource) do
     case Ash.Resource.Info.attribute(resource, field) do
       %{source: source} when not is_nil(source) ->
         source
@@ -1972,6 +1983,7 @@ defmodule AshPostgres.DataLayer do
     case bulk_create(resource, [changeset], %{
            single?: true,
            tenant: Map.get(changeset, :to_tenant, changeset.tenant),
+           action_select: changeset.action_select,
            return_records?: true
          }) do
       {:ok, [result]} ->
@@ -2041,7 +2053,7 @@ defmodule AshPostgres.DataLayer do
     )
   end
 
-  defp ecto_changeset(record, changeset, type, table_error? \\ true) do
+  defp ecto_changeset(record, changeset, type, table_error?) do
     attributes =
       changeset.resource
       |> Ash.Resource.Info.attributes()
@@ -2531,7 +2543,7 @@ defmodule AshPostgres.DataLayer do
   end
 
   @impl true
-  def upsert(resource, changeset, keys \\ nil) do
+  def upsert(resource, changeset, keys, identity) do
     if AshPostgres.DataLayer.Info.manage_tenant_update?(resource) do
       {:error, "Cannot currently upsert a resource that owns a tenant"}
     else
@@ -2553,10 +2565,38 @@ defmodule AshPostgres.DataLayer do
              single?: true,
              upsert?: true,
              tenant: changeset.tenant,
+             identity: identity,
              upsert_keys: keys,
+             action_select: changeset.action_select,
              upsert_fields: upsert_fields,
              return_records?: true
            }) do
+        {:ok, []} ->
+          key_filters =
+            Enum.map(keys, fn key ->
+              {key,
+               Ash.Changeset.get_attribute(changeset, key) || Map.get(changeset.params, key) ||
+                 Map.get(changeset.params, to_string(key))}
+            end)
+
+          ash_query =
+            resource
+            |> Ash.Query.do_filter(and: [key_filters])
+            |> then(fn
+              query when is_nil(identity) or is_nil(identity.where) -> query
+              query -> Ash.Query.do_filter(query, identity.where)
+            end)
+            |> Ash.Query.set_tenant(changeset.tenant)
+
+          {:ok,
+           {:upsert_skipped, ash_query,
+            fn ->
+              with {:ok, ecto_query} <- Ash.Query.data_layer_query(ash_query),
+                   {:ok, [result]} <- run_query(ecto_query, resource) do
+                {:ok, Ash.Resource.put_metadata(result, :upsert_skipped, true)}
+              end
+            end}}
+
         {:ok, [result]} ->
           {:ok, result}
 
@@ -2566,23 +2606,73 @@ defmodule AshPostgres.DataLayer do
     end
   end
 
-  defp conflict_target(resource, keys) do
-    if Ash.Resource.Info.base_filter(resource) do
-      base_filter_sql =
-        AshPostgres.DataLayer.Info.base_filter_sql(resource) ||
-          raise """
-          Cannot use upserts with resources that have a base_filter without also adding `base_filter_sql` in the postgres section.
-          """
+  defp conflict_target(resource, identity, keys) do
+    identity_where =
+      case identity do
+        %{name: name, where: where} when not is_nil(where) ->
+          AshPostgres.DataLayer.Info.identity_where_to_sql(resource, name) ||
+            raise(
+              "Must provide an entry for :#{identity.name} in `postgres.identity_wheres_to_sql` to use it as an upsert_identity"
+            )
 
-      sources =
-        Enum.map(keys, fn key ->
-          ~s("#{Ash.Resource.Info.attribute(resource, key).source || key}")
-        end)
+        _ ->
+          nil
+      end
 
-      {:unsafe_fragment, "(" <> Enum.join(sources, ", ") <> ") WHERE (#{base_filter_sql})"}
-    else
+    base_filter_sql =
+      case Ash.Resource.Info.base_filter(resource) do
+        nil ->
+          nil
+
+        _base_filter ->
+          AshPostgres.DataLayer.Info.base_filter_sql(resource) ||
+            raise """
+            Cannot use upserts with resources that have a base_filter without also adding `base_filter_sql` in the postgres section.
+            """
+      end
+
+    where =
+      case {base_filter_sql, identity_where} do
+        {nil, nil} ->
+          nil
+
+        {base_filter_sql, nil} ->
+          " WHERE (#{base_filter_sql})"
+
+        {nil, identity_where} ->
+          " WHERE (#{identity_where})"
+
+        {base_filter_sql, identity_where} ->
+          " WHERE ((#{base_filter_sql}) AND (#{identity_where}))"
+      end
+
+    if is_nil(where) && Enum.all?(keys, &Ash.Resource.Info.attribute(resource, &1)) do
       keys
+    else
+      sources = sources_to_sql(resource, keys)
+      {:unsafe_fragment, "(" <> Enum.join(sources, ", ") <> ")#{where}"}
     end
+  end
+
+  defp sources_to_sql(resource, keys) do
+    Enum.map(keys, fn key ->
+      case Ash.Resource.Info.field(resource, key) do
+        %Ash.Resource.Attribute{source: source, name: name} ->
+          ~s("#{source || name}")
+
+        %Ash.Resource.Calculation{name: name} ->
+          if sql = AshPostgres.DataLayer.Info.calculation_to_sql(resource, name) do
+            "(" <> sql <> ")"
+          else
+            raise ArgumentError,
+                  "Calculation #{inspect(key)} used in `AshPostgres.DataLayer` conflict target must have its sql defined in `calculations_to_sql`"
+          end
+
+        _other ->
+          raise ArgumentError,
+                "Unsupported field #{inspect(key)} used in `AshPostgres.DataLayer` conflict target"
+      end
+    end)
   end
 
   defp update_defaults(resource) do
@@ -2652,12 +2742,11 @@ defmodule AshPostgres.DataLayer do
 
   @impl true
   def update(resource, changeset) do
-    ecto_changeset =
-      changeset.data
-      |> Map.update!(:__meta__, &Map.put(&1, :source, table(resource, changeset)))
-      |> ecto_changeset(changeset, :update)
-
     source = resolve_source(resource, changeset)
+
+    modifying =
+      Map.keys(changeset.attributes) ++
+        Keyword.keys(changeset.atomics) ++ Ash.Resource.Info.primary_key(resource)
 
     query =
       from(row in source, as: ^0)
@@ -2668,78 +2757,39 @@ defmodule AshPostgres.DataLayer do
       )
       |> pkey_filter(changeset.data)
 
-    case bulk_updatable_query(query, resource, changeset.atomics, [], changeset.context) do
+    changeset =
+      Ash.Changeset.set_context(changeset, %{
+        data_layer: %{
+          use_atomic_update_data?: true
+        }
+      })
+
+    case update_query(query, changeset, resource, %{
+           return_records?: true,
+           action_select: changeset.action_select,
+           calculations: []
+         }) do
+      {:ok, []} ->
+        {:error,
+         Ash.Error.Changes.StaleRecord.exception(
+           resource: resource,
+           filter: changeset.filter
+         )}
+
+      {:ok, [record]} ->
+        record =
+          changeset.data
+          |> Map.merge(Map.take(record, modifying))
+
+        maybe_update_tenant(resource, changeset, record)
+
+        {:ok, record}
+
       {:error, error} ->
         {:error, error}
 
-      {:ok, query} ->
-        modifying =
-          Map.keys(changeset.attributes) ++
-            Keyword.keys(changeset.atomics) ++ Ash.Resource.Info.primary_key(resource)
-
-        query = Ecto.Query.select(query, ^modifying)
-
-        try do
-          case AshSql.Atomics.query_with_atomics(
-                 resource,
-                 query,
-                 changeset.filter,
-                 changeset.atomics,
-                 ecto_changeset.changes,
-                 []
-               ) do
-            :empty ->
-              {:ok, changeset.data}
-
-            {:ok, query} ->
-              repo = AshSql.dynamic_repo(resource, AshPostgres.SqlImplementation, changeset)
-
-              repo_opts =
-                AshSql.repo_opts(
-                  repo,
-                  AshPostgres.SqlImplementation,
-                  changeset.timeout,
-                  changeset.tenant,
-                  changeset.resource
-                )
-
-              repo_opts =
-                Keyword.put(repo_opts, :returning, Keyword.keys(changeset.atomics))
-
-              result =
-                with_savepoint(repo, query, fn ->
-                  repo.update_all(
-                    query,
-                    [],
-                    repo_opts
-                  )
-                end)
-
-              case result do
-                {0, []} ->
-                  {:error,
-                   Ash.Error.Changes.StaleRecord.exception(
-                     resource: resource,
-                     filter: changeset.filter
-                   )}
-
-                {1, [result]} ->
-                  record =
-                    changeset.data
-                    |> Map.merge(Map.take(result, modifying))
-
-                  maybe_update_tenant(resource, changeset, record)
-
-                  {:ok, record}
-              end
-
-            {:error, error} ->
-              {:error, error}
-          end
-        rescue
-          e ->
-            handle_raised_error(e, __STACKTRACE__, ecto_changeset, resource)
-        end
+      {:error, :no_rollback, error} ->
+        {:error, :no_rollback, error}
     end
   end
 
@@ -2755,42 +2805,68 @@ defmodule AshPostgres.DataLayer do
   @impl true
 
   def destroy(resource, %{data: record} = changeset) do
-    ecto_changeset = ecto_changeset(record, changeset, :delete)
+    source = resolve_source(resource, changeset)
 
-    try do
-      repo = AshSql.dynamic_repo(resource, AshPostgres.SqlImplementation, changeset)
-
-      source = resolve_source(resource, changeset)
-
+    query =
       from(row in source, as: ^0)
       |> AshSql.Bindings.default_bindings(
         resource,
         AshPostgres.SqlImplementation,
         changeset.context
       )
-      |> filter(changeset.filter, resource)
-      |> case do
-        {:ok, query} ->
-          query
-          |> pkey_filter(record)
-          |> repo.delete_all(
-            AshSql.repo_opts(
-              repo,
-              AshPostgres.SqlImplementation,
-              changeset.timeout,
-              changeset.tenant,
-              changeset.resource
-            )
-          )
+      |> pkey_filter(record)
 
-          :ok
+    with {:ok, query} <- filter(query, changeset.filter, resource) do
+      ecto_changeset =
+        case changeset.data do
+          %Ash.Changeset.OriginalDataNotAvailable{} ->
+            changeset.resource.__struct__()
 
+          data ->
+            data
+        end
+        |> Map.update!(:__meta__, &Map.put(&1, :source, table(resource, changeset)))
+        |> ecto_changeset(changeset, :delete, true)
+
+      case bulk_updatable_query(
+             query,
+             resource,
+             [],
+             [],
+             changeset.context,
+             :destroy
+           ) do
         {:error, error} ->
           {:error, error}
+
+        {:ok, query} ->
+          try do
+            repo = AshSql.dynamic_repo(resource, AshPostgres.SqlImplementation, changeset)
+
+            repo_opts =
+              AshSql.repo_opts(
+                repo,
+                AshPostgres.SqlImplementation,
+                changeset.timeout,
+                changeset.tenant,
+                changeset.resource
+              )
+
+            query = Ecto.Query.exclude(query, :select)
+
+            with_savepoint(repo, query, fn ->
+              repo.delete_all(
+                query,
+                repo_opts
+              )
+            end)
+
+            :ok
+          rescue
+            e ->
+              handle_raised_error(e, __STACKTRACE__, ecto_changeset, resource)
+          end
       end
-    rescue
-      e ->
-        handle_raised_error(e, __STACKTRACE__, ecto_changeset, resource)
     end
   end
 
@@ -2928,6 +3004,32 @@ defmodule AshPostgres.DataLayer do
       repo.transaction(func)
     end
   end
+
+  def install(igniter, module, Ash.Resource, _path, argv) do
+    table_name =
+      module
+      |> Module.split()
+      |> List.last()
+      |> Macro.underscore()
+      |> Inflex.pluralize()
+
+    {options, _, _} = OptionParser.parse(argv, switches: [repo: :string])
+
+    repo =
+      case options[:repo] do
+        nil ->
+          Igniter.Project.Module.module_name(igniter, "Repo")
+
+        repo ->
+          Igniter.Code.Module.parse(repo)
+      end
+
+    igniter
+    |> Spark.Igniter.set_option(module, [:postgres, :table], table_name)
+    |> Spark.Igniter.set_option(module, [:postgres, :repo], repo)
+  end
+
+  def install(igniter, _, _, _), do: igniter
 
   @impl true
   def rollback(resource, term) do

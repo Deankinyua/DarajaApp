@@ -26,6 +26,11 @@ defmodule AshAuthentication.Phoenix.Overrides.Overridable do
       @overrides unquote(overrides)
       import Overrides.Overridable, only: :macros
 
+      if hd(Module.split(__MODULE__)) == "AshAuthentication" and
+           __MODULE__ not in AshAuthenticationPhoenix.Overrides.List.overridable() do
+        raise "#{inspect(__MODULE__)} must be present in `AshAuthentication.Overrides.List` to be used as an overridable component."
+      end
+
       @doc false
       @impl true
       @spec __overrides__ :: %{required(atom) => binary}
@@ -63,19 +68,16 @@ defmodule AshAuthentication.Phoenix.Overrides.Overridable do
 
     if Map.has_key?(component_overrides, selector) do
       quote do
-        override =
-          unquote(overrides)
-          |> Enum.reduce_while(nil, fn module, _ ->
-            module.overrides()
-            |> Map.fetch({unquote(component), unquote(selector)})
-            # credo:disable-for-next-line Credo.Check.Refactor.Nesting
-            |> case do
-              {:ok, value} -> {:halt, value}
-              :error -> {:cont, nil}
-            end
-          end)
-
-        override || unquote(default)
+        unquote(overrides)
+        |> Enum.reduce_while(unquote(default), fn module, value ->
+          module.overrides()
+          |> Map.fetch({unquote(component), unquote(selector)})
+          # credo:disable-for-next-line Credo.Check.Refactor.Nesting
+          |> case do
+            {:ok, value} -> {:halt, value}
+            :error -> {:cont, value}
+          end
+        end)
       end
     else
       IO.warn(

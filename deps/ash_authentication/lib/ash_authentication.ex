@@ -67,6 +67,18 @@ defmodule AshAuthentication do
   3. `AshAuthentication.Strategy.MagicLink`
      - authenticate by sending a single-use link to the user.
 
+  ### HTTP client settings
+
+  Most of the authentication strategies based on `OAuth2` wrap the [`assent`](https://hex.pm/packages/assent) package.
+
+  If you needs to customize the behavior of the http client used by `assent`, define a custom `http_adapter` in the
+  application settings:
+
+  `config :ash_authentication, :http_adapter, {Assent.HTTPAdapter.Finch, supervisor: MyApp.CustomFinch}`
+
+  See [`assent's documentation`](https://hexdocs.pm/assent/README.html#http-client) for more details on the supported
+  http clients and their configuration.
+
   ## Add-ons
 
   Add-ons are like strategies, except that they don't actually provide
@@ -103,6 +115,7 @@ defmodule AshAuthentication do
     AshAuthentication.Strategy.Auth0,
     AshAuthentication.Strategy.Github,
     AshAuthentication.Strategy.Google,
+    AshAuthentication.Strategy.Apple,
     AshAuthentication.Strategy.MagicLink,
     AshAuthentication.Strategy.OAuth2,
     AshAuthentication.Strategy.Oidc,
@@ -137,12 +150,6 @@ defmodule AshAuthentication do
   Find all resources which support authentication for a given OTP application.
 
   Returns a list of resource modules.
-
-  ## Example
-
-      iex> authenticated_resources(:ash_authentication)
-      [Example.User, Example.UserWithTokenRequired]
-
   """
   @spec authenticated_resources(atom | [atom]) :: [Resource.t()]
   def authenticated_resources(otp_app) do
@@ -195,12 +202,45 @@ defmodule AshAuthentication do
   @spec subject_to_user(subject | URI.t(), Resource.t(), keyword) ::
           {:ok, Resource.record()} | {:error, any}
 
-  def subject_to_user(subject, resource, options \\ [])
+  def subject_to_user(subject, resource, options \\ []) do
+    with {:ok, action_name} <- Info.authentication_get_by_subject_action_name(resource),
+         action when not is_nil(action) <- Ash.Resource.Info.action(resource, action_name) do
+      if Enum.any?(action.arguments, &(&1.name == :subject)) do
+        resource
+        |> Query.new()
+        |> Query.set_context(%{
+          private: %{
+            ash_authentication?: true
+          }
+        })
+        |> Query.for_read(action_name, %{subject: to_string(subject)})
+        |> Ash.read_one(Keyword.put(options, :not_found_error?, true))
+        |> case do
+          # This is here for backwards compatibility with the old api
+          # when this argument was not added
+          {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{} = not_found]}} ->
+            {:error, not_found}
 
-  def subject_to_user(subject, resource, options) when is_binary(subject),
+          other ->
+            other
+        end
+      else
+        do_subject_to_user(subject, resource, options)
+      end
+    else
+      _ ->
+        {:error, NotFound.exception([])}
+    end
+  end
+
+  def do_subject_to_user(subject, resource, options) when is_binary(subject),
     do: subject |> URI.parse() |> subject_to_user(resource, options)
 
-  def subject_to_user(%URI{path: subject_name, query: primary_key} = _subject, resource, options) do
+  def do_subject_to_user(
+        %URI{path: subject_name, query: primary_key} = _subject,
+        resource,
+        options
+      ) do
     with {:ok, resource_subject_name} <- Info.authentication_subject_name(resource),
          ^subject_name <- to_string(resource_subject_name),
          {:ok, action_name} <- Info.authentication_get_by_subject_action_name(resource) do
@@ -220,13 +260,12 @@ defmodule AshAuthentication do
           ash_authentication?: true
         }
       })
-      |> Query.for_read(action_name, %{})
+      |> Query.for_read(action_name, %{}, options)
       |> Query.filter(^primary_key)
-      |> Ash.read(options)
-      |> case do
-        {:ok, [user]} -> {:ok, user}
-        _ -> {:error, NotFound.exception([])}
-      end
+      |> Ash.read_one()
+    else
+      _ ->
+        {:error, Ash.Error.to_error_class(NotFound.exception([]))}
     end
   end
 

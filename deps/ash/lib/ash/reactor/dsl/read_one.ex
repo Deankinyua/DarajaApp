@@ -9,10 +9,12 @@ defmodule Ash.Reactor.Dsl.ReadOne do
             actor: [],
             async?: true,
             authorize?: nil,
+            context: nil,
             description: nil,
             domain: nil,
             fail_on_not_found?: nil,
             inputs: [],
+            load: nil,
             name: nil,
             resource: nil,
             tenant: [],
@@ -24,16 +26,18 @@ defmodule Ash.Reactor.Dsl.ReadOne do
           __identifier__: any,
           action_step?: true,
           action: atom,
-          actor: [Ash.Reactor.Dsl.Actor.t()],
+          actor: nil | Ash.Reactor.Dsl.Actor.t(),
           async?: boolean,
           authorize?: boolean | nil,
+          context: nil | Ash.Reactor.Dsl.Context.t(),
           description: String.t() | nil,
           domain: Ash.Domain.t(),
           fail_on_not_found?: boolean,
           inputs: [Ash.Reactor.Dsl.Inputs.t()],
+          load: nil | Ash.Reactor.Dsl.ActionLoad.t(),
           name: atom,
           resource: module,
-          tenant: [Ash.Reactor.Dsl.Tenant.t()],
+          tenant: nil | Ash.Reactor.Dsl.Tenant.t(),
           type: :create,
           wait_for: [Reactor.Dsl.WaitFor.t()]
         }
@@ -58,11 +62,13 @@ defmodule Ash.Reactor.Dsl.ReadOne do
       imports: [Reactor.Dsl.Argument],
       entities: [
         actor: [Ash.Reactor.Dsl.Actor.__entity__()],
+        context: [Ash.Reactor.Dsl.Context.__entity__()],
         inputs: [Ash.Reactor.Dsl.Inputs.__entity__()],
+        load: [Ash.Reactor.Dsl.ActionLoad.__entity__()],
         tenant: [Ash.Reactor.Dsl.Tenant.__entity__()],
         wait_for: [Reactor.Dsl.WaitFor.__entity__()]
       ],
-      singleton_entity_keys: [:actor, :tenant],
+      singleton_entity_keys: [:actor, :context, :load, :tenant],
       recursive_as: :steps,
       schema:
         [

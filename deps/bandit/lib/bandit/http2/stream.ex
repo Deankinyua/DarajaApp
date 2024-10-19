@@ -243,7 +243,7 @@ defmodule Bandit.HTTP2.Stream do
       case do_recv(stream, timeout) do
         {:headers, trailers, stream} ->
           no_pseudo_headers!(trailers)
-          Logger.warning("Ignoring trailers #{inspect(trailers)}")
+          Logger.warning("Ignoring trailers #{inspect(trailers)}", domain: [:bandit])
           do_read_data(stream, max_bytes, timeout, acc)
 
         {:data, data, stream} ->
@@ -443,7 +443,11 @@ defmodule Bandit.HTTP2.Stream do
             |> do_recv_send_window_update(delta)
             |> send_data(rest, end_stream)
         after
-          stream.read_timeout -> raise "Timeout waiting for space in the send_window"
+          stream.read_timeout ->
+            stream_error!(
+              "Timeout waiting for space in the send_window",
+              Bandit.HTTP2.Errors.flow_control_error()
+            )
         end
       end
     end
@@ -491,7 +495,7 @@ defmodule Bandit.HTTP2.Stream do
     def ensure_completed(%@for{state: :local_closed} = stream) do
       receive do
         {:headers, _headers, true} -> do_recv_end_stream(stream, true)
-        {:data, _data, true} -> do_recv_end_stream(stream, true)
+        {:data, data, true} -> do_recv_data(stream, data) |> do_recv_end_stream(true)
       after
         # RFC9113§8.1 - hint the client to stop sending data
         0 -> do_send(stream, {:send_rst_stream, Bandit.HTTP2.Errors.no_error()})

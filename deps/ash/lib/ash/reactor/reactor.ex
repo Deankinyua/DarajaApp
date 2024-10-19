@@ -20,10 +20,12 @@ defmodule Ash.Reactor do
   }
   @type action ::
           Ash.Reactor.Dsl.Action.t()
+          | Ash.Reactor.Dsl.AshStep.t()
           | Ash.Reactor.Dsl.BulkCreate.t()
           | Ash.Reactor.Dsl.BulkUpdate.t()
           | Ash.Reactor.Dsl.Create.t()
           | Ash.Reactor.Dsl.Destroy.t()
+          | Ash.Reactor.Dsl.Load.t()
           | Ash.Reactor.Dsl.Read.t()
           | Ash.Reactor.Dsl.ReadOne.t()
           | Ash.Reactor.Dsl.Update.t()
@@ -34,11 +36,13 @@ defmodule Ash.Reactor do
     dsl_patches:
       [
         Ash.Reactor.Dsl.Action,
+        Ash.Reactor.Dsl.AshStep,
         Ash.Reactor.Dsl.BulkCreate,
         Ash.Reactor.Dsl.BulkUpdate,
         Ash.Reactor.Dsl.Change,
         Ash.Reactor.Dsl.Create,
         Ash.Reactor.Dsl.Destroy,
+        Ash.Reactor.Dsl.Load,
         Ash.Reactor.Dsl.ReadOne,
         Ash.Reactor.Dsl.Read,
         Ash.Reactor.Dsl.Transaction,

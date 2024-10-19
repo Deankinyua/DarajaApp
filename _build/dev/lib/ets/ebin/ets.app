@@ -1,5 +1,5 @@
 {application,ets,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332002},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir,logger]},
               {description,"Elixir wrapper for the Erlang :ets module."},

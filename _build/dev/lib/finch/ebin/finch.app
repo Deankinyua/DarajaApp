@@ -1,8 +1,8 @@
 {application,finch,
-             [{config_mtime,1719649741},
+             [{config_mtime,1729332000},
               {optional_applications,[]},
-              {applications,[kernel,stdlib,elixir,logger,mint,castore,
-                             nimble_pool,nimble_options,telemetry,mime]},
+              {applications,[kernel,stdlib,elixir,logger,mint,nimble_pool,
+                             nimble_options,telemetry,mime]},
               {description,"An HTTP client focused on performance."},
               {modules,['Elixir.Finch','Elixir.Finch.Error',
                         'Elixir.Finch.HTTP1.Conn','Elixir.Finch.HTTP1.Pool',
@@ -14,4 +14,4 @@
                         'Elixir.Finch.Request','Elixir.Finch.Response',
                         'Elixir.Finch.SSL','Elixir.Finch.Telemetry']},
               {registered,[]},
-              {vsn,"0.18.0"}]}.
+              {vsn,"0.19.0"}]}.

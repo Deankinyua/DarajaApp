@@ -74,103 +74,57 @@ defmodule AshSql.Join do
         parent_query,
         no_inner_join?
       ) do
-    relationship_paths =
-      cond do
-        relationship_paths ->
-          relationship_paths
+    case join_parent_paths(query, filter, relationship_paths) do
+      {:ok, query} ->
+        relationship_paths =
+          relationship_paths ||
+            filter
+            |> Ash.Filter.relationship_paths()
+            |> to_joins(filter, query.__ash_bindings__.resource)
 
-        opts[:no_this?] ->
-          filter
-          |> Ash.Filter.map(fn
-            %Ash.Query.Parent{} ->
-              nil
+        Enum.reduce_while(relationship_paths, {:ok, query}, fn
+          {_join_type, []}, {:ok, query} ->
+            {:cont, {:ok, query}}
 
-            other ->
-              other
-          end)
-          |> Ash.Filter.relationship_paths()
-          |> to_joins(filter, query.__ash_bindings__.resource)
+          {join_type, [relationship | rest_rels]}, {:ok, query} ->
+            join_type =
+              if no_inner_join? do
+                :left
+              else
+                join_type
+              end
 
-        true ->
-          filter
-          |> Ash.Filter.relationship_paths()
-          |> to_joins(filter, query.__ash_bindings__.resource)
-      end
+            source = source || relationship.source
 
-    Enum.reduce_while(relationship_paths, {:ok, query}, fn
-      {_join_type, []}, {:ok, query} ->
-        {:cont, {:ok, query}}
+            current_path = path ++ [relationship]
 
-      {join_type, [relationship | rest_rels]}, {:ok, query} ->
-        join_type =
-          if no_inner_join? do
-            :left
-          else
-            join_type
-          end
+            current_join_type = join_type
 
-        source = source || relationship.source
+            look_for_join_types =
+              case join_type do
+                :left ->
+                  [:left, :inner]
 
-        current_path = path ++ [relationship]
+                :inner ->
+                  [:left, :inner]
 
-        current_join_type = join_type
+                other ->
+                  [other]
+              end
 
-        look_for_join_types =
-          case join_type do
-            :left ->
-              [:left, :inner]
+            binding =
+              get_binding(source, Enum.map(current_path, & &1.name), query, look_for_join_types)
 
-            :inner ->
-              [:left, :inner]
-
-            other ->
-              [other]
-          end
-
-        binding =
-          get_binding(source, Enum.map(current_path, & &1.name), query, look_for_join_types)
-
-        # We can't reuse joins if we're adding filters/have a separate parent binding
-        if is_nil(join_filters) && is_nil(parent_query) && binding do
-          case join_all_relationships(
-                 query,
-                 filter,
-                 opts,
-                 [{join_type, rest_rels}],
-                 current_path,
-                 source,
-                 sort?
-               ) do
-            {:ok, query} ->
-              {:cont, {:ok, query}}
-
-            {:error, error} ->
-              {:halt, {:error, error}}
-          end
-        else
-          case join_relationship(
-                 set_parent_bindings(query, parent_query),
-                 relationship,
-                 Enum.map(path, & &1.name),
-                 current_join_type,
-                 source,
-                 filter,
-                 sort?,
-                 join_filters[Enum.map(current_path, & &1.name)]
-               ) do
-            {:ok, joined_query} ->
-              joined_query_with_distinct = add_distinct(relationship, join_type, joined_query)
-
+            # We can't reuse joins if we're adding filters/have a separate parent binding
+            if is_nil(join_filters) && is_nil(parent_query) && binding do
               case join_all_relationships(
-                     joined_query_with_distinct,
+                     query,
                      filter,
                      opts,
                      [{join_type, rest_rels}],
                      current_path,
                      source,
-                     sort?,
-                     join_filters,
-                     joined_query
+                     sort?
                    ) do
                 {:ok, query} ->
                   {:cont, {:ok, query}}
@@ -178,20 +132,90 @@ defmodule AshSql.Join do
                 {:error, error} ->
                   {:halt, {:error, error}}
               end
+            else
+              case join_relationship(
+                     query,
+                     relationship,
+                     Enum.map(path, & &1.name),
+                     current_join_type,
+                     source,
+                     filter,
+                     sort?,
+                     join_filters[Enum.map(current_path, & &1.name)]
+                   ) do
+                {:ok, joined_query} ->
+                  joined_query_with_distinct = add_distinct(relationship, join_type, joined_query)
 
-            {:error, error} ->
-              {:halt, {:error, error}}
-          end
-        end
-    end)
+                  case join_all_relationships(
+                         joined_query_with_distinct,
+                         filter,
+                         opts,
+                         [{join_type, rest_rels}],
+                         current_path,
+                         source,
+                         sort?,
+                         join_filters,
+                         Map.update!(joined_query, :__ash_bindings__, fn ash_bindings ->
+                           Map.put(
+                             ash_bindings,
+                             :refs_at_path,
+                             Enum.map(path, & &1.name) ++ [relationship.name]
+                           )
+                         end)
+                       ) do
+                    {:ok, query} ->
+                      {:cont, {:ok, query}}
+
+                    {:error, error} ->
+                      {:halt, {:error, error}}
+                  end
+
+                {:error, error} ->
+                  {:halt, {:error, error}}
+              end
+            end
+        end)
+
+      {:error, error} ->
+        {:error, error}
+    end
   end
 
-  defp set_parent_bindings(query, parent_query) do
-    if parent_query do
-      AshSql.Expr.set_parent_path(query, parent_query, false)
-    else
-      query
+  defp join_parent_paths(query, filter, nil) do
+    parent_exprs =
+      Ash.Filter.flat_map(filter, fn
+        %Ash.Query.Parent{expr: expr} ->
+          [expr]
+
+        _ ->
+          []
+      end)
+
+    case query.__ash_bindings__[:lateral_join_source_query] do
+      nil ->
+        {:ok, query}
+
+      lateral_join_source_query ->
+        case join_all_relationships(lateral_join_source_query, parent_exprs) do
+          {:ok, lateral_join_source_query} ->
+            {:ok,
+             put_in(query.__ash_bindings__.lateral_join_source_query, lateral_join_source_query)
+             |> Map.update!(:__ash_bindings__, fn bindings ->
+               Map.put(
+                 bindings,
+                 :parent_bindings,
+                 Map.put(lateral_join_source_query.__ash_bindings__, :parent?, true)
+               )
+             end)}
+
+          {:error, error} ->
+            {:error, error}
+        end
     end
+  end
+
+  defp join_parent_paths(query, _filter, _relationship_paths) do
+    {:ok, query}
   end
 
   defp to_joins(paths, filter, resource) do
@@ -234,6 +258,8 @@ defmodule AshSql.Join do
       ) do
     on_parent_expr = Keyword.get(opts, :on_parent_expr, & &1)
     on_subquery = Keyword.get(opts, :on_subquery, & &1)
+    filter = Keyword.get(opts, :filter, nil)
+    filter_subquery? = Keyword.get(opts, :filter_subquery?, false)
 
     with {:ok, query} <- related_query(relationship, root_query, opts) do
       has_parent_expr? =
@@ -249,6 +275,8 @@ defmodule AshSql.Join do
 
       query = on_subquery.(query)
 
+      query = limit_from_many(query, relationship, filter, filter_subquery?, opts)
+
       query =
         if opts[:return_subquery?] do
           subquery(query)
@@ -256,7 +284,7 @@ defmodule AshSql.Join do
           if Enum.empty?(query.joins) && Enum.empty?(query.order_bys) && Enum.empty?(query.wheres) do
             query
           else
-            from(row in subquery(query), as: ^0)
+            from(row in subquery(query), as: ^(opts[:start_bindings_at] || 0))
             |> AshSql.Bindings.default_bindings(
               relationship.destination,
               query.__ash_bindings__.sql_behaviour
@@ -296,7 +324,10 @@ defmodule AshSql.Join do
     relationship.destination
     |> Ash.Query.new()
     |> Ash.Query.set_context(context)
-    |> Ash.Query.set_context(%{data_layer: %{table: nil}})
+    |> Ash.Query.set_context(%{data_layer: %{in_group?: !!opts[:in_group?]}})
+    |> Ash.Query.set_context(%{
+      data_layer: %{table: nil, start_bindings_at: opts[:start_bindings_at] || 0}
+    })
     |> Ash.Query.set_context(relationship.context)
     |> Ash.Query.do_filter(relationship.filter, parent_stack: parent_resources)
     |> then(fn query ->
@@ -311,6 +342,7 @@ defmodule AshSql.Join do
       actor: context[:private][:actor],
       tenant: context[:private][:tenant]
     )
+    |> Ash.Query.set_tenant(Map.get(query, :__tenant__))
     |> Ash.Query.unset([:sort, :distinct, :select, :limit, :offset])
     |> hydrate_refs(context[:private][:actor])
     |> then(fn query ->
@@ -325,13 +357,14 @@ defmodule AshSql.Join do
       %{valid?: true} = related_query ->
         Ash.Query.data_layer_query(
           Ash.Query.set_context(related_query, %{
-            data_layer: %{parent_bindings: query.__ash_bindings__}
+            data_layer: %{
+              parent_bindings:
+                Map.put(query.__ash_bindings__, :refs_at_path, List.wrap(opts[:refs_at_path]))
+            }
           })
         )
         |> case do
           {:ok, ecto_query} ->
-            ecto_query = limit_from_many(ecto_query, relationship, filter, filter_subquery?)
-
             {:ok,
              ecto_query
              |> set_join_prefix(query, relationship.destination)
@@ -356,20 +389,47 @@ defmodule AshSql.Join do
     end
   end
 
-  defp limit_from_many(query, %{from_many?: true}, filter, filter_subquery?) do
+  defp limit_from_many(
+         query,
+         %{from_many?: true, destination: destination},
+         filter,
+         filter_subquery?,
+         opts
+       ) do
     if filter_subquery? do
       query =
-        from(row in Ecto.Query.subquery(from(row in query, limit: 1)), as: ^0)
+        from(row in Ecto.Query.subquery(from(row in query, limit: 1)),
+          as: ^query.__ash_bindings__.root_binding
+        )
         |> Map.put(:__ash_bindings__, query.__ash_bindings__)
+        |> AshSql.Bindings.default_bindings(
+          destination,
+          query.__ash_bindings__.sql_behaviour
+        )
 
       {:ok, query} = AshSql.Filter.filter(query, filter, query.__ash_bindings__.resource)
-      query
+
+      if opts[:select_star?] do
+        from(row in Ecto.Query.exclude(query, :select), select: 1)
+      else
+        query
+      end
     else
-      from(row in query, limit: 1)
+      if opts[:select_star?] do
+        from(row in Ecto.Query.exclude(query, :select), select: 1)
+      else
+        query
+      end
     end
   end
 
-  defp limit_from_many(query, _, _, _), do: query
+  defp limit_from_many(query, _, _, _, opts) do
+    if opts[:select_star?] do
+      from(row in Ecto.Query.exclude(query, :select), select: 1)
+    else
+      query
+    end
+  end
 
   defp set_has_parent_expr_context(query, relationship) do
     has_parent_expr? =
@@ -387,8 +447,9 @@ defmodule AshSql.Join do
       %{
         join_query
         | prefix:
-            Map.get(query, :__tenant__) || query.prefix ||
+            Map.get(query, :__tenant__) ||
               query.__ash_bindings__.sql_behaviour.schema(resource) ||
+              query.prefix ||
               query.__ash_bindings__.sql_behaviour.repo(resource, :mutate).config()[
                 :default_prefix
               ]
@@ -475,8 +536,9 @@ defmodule AshSql.Join do
   def get_binding(_, _, _, _), do: nil
 
   defp add_distinct(relationship, _join_type, joined_query) do
-    if !joined_query.__ash_bindings__.in_group? &&
-         relationship.cardinality == :many &&
+    if !(joined_query.__ash_bindings__.in_group? ||
+           joined_query.__ash_bindings__.context[:data_layer][:in_group?]) &&
+         (relationship.cardinality == :many || Map.get(relationship, :from_many?)) &&
          !joined_query.distinct do
       pkey = Ash.Resource.Info.primary_key(joined_query.__ash_bindings__.resource)
 
@@ -512,7 +574,11 @@ defmodule AshSql.Join do
     used_aggregates = Ash.Filter.used_aggregates(filter, full_path)
 
     with {:ok, relationship_destination} <-
-           related_subquery(relationship, query, sort?: sort?, apply_filter?: apply_filter) do
+           related_subquery(relationship, query,
+             sort?: sort?,
+             apply_filter?: apply_filter,
+             refs_at_path: path
+           ) do
       binding_kinds =
         case kind do
           :left ->
@@ -526,11 +592,15 @@ defmodule AshSql.Join do
         end
 
       current_binding =
-        Enum.find_value(initial_ash_bindings.bindings, 0, fn {binding, data} ->
-          if data.type in binding_kinds && data.path == path do
-            binding
+        Enum.find_value(
+          initial_ash_bindings.bindings,
+          initial_ash_bindings.root_binding,
+          fn {binding, data} ->
+            if data.type in binding_kinds && data.path == path do
+              binding
+            end
           end
-        end)
+        )
 
       case apply(module, query.__ash_bindings__.sql_behaviour.manual_relationship_function(), [
              query,
@@ -600,7 +670,11 @@ defmodule AshSql.Join do
 
     with {:ok, relationship_through} <- related_subquery(join_relationship, query),
          {:ok, relationship_destination} <-
-           related_subquery(relationship, query, sort?: sort?, apply_filter?: apply_filter) do
+           related_subquery(relationship, query,
+             sort?: sort?,
+             apply_filter?: apply_filter,
+             refs_at_path: path
+           ) do
       {relationship_destination, dest_acc} =
         maybe_apply_filter(relationship_destination, query, query.__ash_bindings__, apply_filter)
 
@@ -621,11 +695,15 @@ defmodule AshSql.Join do
         end
 
       current_binding =
-        Enum.find_value(initial_ash_bindings.bindings, 0, fn {binding, data} ->
-          if data.type in binding_kinds && data.path == path do
-            binding
+        Enum.find_value(
+          initial_ash_bindings.bindings,
+          initial_ash_bindings.root_binding,
+          fn {binding, data} ->
+            if data.type in binding_kinds && data.path == path do
+              binding
+            end
           end
-        end)
+        )
 
       query =
         case kind do
@@ -701,15 +779,47 @@ defmodule AshSql.Join do
       end
 
     current_binding =
-      Enum.find_value(initial_ash_bindings.bindings, 0, fn {binding, data} ->
-        if data.type in binding_kinds && data.path == path do
-          binding
+      Enum.find_value(
+        initial_ash_bindings.bindings,
+        initial_ash_bindings.root_binding,
+        fn {binding, data} ->
+          if data.type in binding_kinds && data.path == path do
+            binding
+          end
         end
-      end)
+      )
 
     case related_subquery(relationship, query,
            sort?: sort?,
            apply_filter: apply_filter,
+           refs_at_path: path,
+           filter_subquery?: true,
+           sort?: Map.get(relationship, :from_many?),
+           on_subquery: fn subquery ->
+             if !Map.get(relationship, :from_many?) || Map.get(relationship, :no_attributes?) do
+               subquery
+             else
+               source_ref =
+                 AshSql.Expr.ref_binding(
+                   %Ref{
+                     attribute:
+                       Ash.Resource.Info.attribute(
+                         query.__ash_bindings__.resource,
+                         relationship.source_attribute
+                       ),
+                     resource: query.__ash_bindings__.resource,
+                     relationship_path: []
+                   },
+                   query.__ash_bindings__
+                 )
+
+               Ecto.Query.from(destination in subquery,
+                 where:
+                   field(parent_as(^source_ref), ^relationship.source_attribute) ==
+                     field(destination, ^relationship.destination_attribute)
+               )
+             end
+           end,
            on_parent_expr: fn subquery ->
              if Map.get(relationship, :no_attributes?) do
                subquery
@@ -733,7 +843,7 @@ defmodule AshSql.Join do
           case {kind, Map.get(relationship, :no_attributes?, false),
                 relationship_destination.__ash_bindings__.context[:data_layer][
                   :has_parent_expr?
-                ]} do
+                ] || Map.get(relationship, :from_many?, false)} do
             {:inner, true, false} ->
               from(_ in query,
                 join: destination in ^relationship_destination,
@@ -801,8 +911,8 @@ defmodule AshSql.Join do
               )
           end
 
-        AshSql.Aggregate.add_aggregates(
-          query,
+        query
+        |> AshSql.Aggregate.add_aggregates(
           used_aggregates,
           relationship.destination,
           false,

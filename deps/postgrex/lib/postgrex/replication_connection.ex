@@ -427,7 +427,7 @@ defmodule Postgrex.ReplicationConnection do
   """
   @spec decode_lsn(String.t()) :: {:ok, integer} | :error
   def decode_lsn(lsn) when is_binary(lsn) do
-    with [file_id, offset] <- String.split(lsn, "/", trim: true),
+    with [file_id, offset] <- :binary.split(lsn, "/"),
          true <- byte_size(file_id) <= @max_lsn_component_size,
          true <- byte_size(offset) <= @max_lsn_component_size,
          {file_id, ""} when file_id >= 0 <- Integer.parse(file_id, 16),
@@ -474,7 +474,7 @@ defmodule Postgrex.ReplicationConnection do
           case handle_event(:internal, {:connect, :init}, @state, state) do
             {:keep_state, state} -> {:ok, @state, state}
             {:keep_state, state, actions} -> {:ok, @state, state, actions}
-            {:stop, _reason, _state} = stop -> stop
+            {:stop, reason, _state} -> {:stop, reason}
           end
         else
           {:ok, @state, state, {:next_event, :internal, {:connect, :init}}}
@@ -527,8 +527,9 @@ defmodule Postgrex.ReplicationConnection do
   defp handle_data([], s), do: {:keep_state, s}
 
   defp handle_data([:copy_done | copies], %{state: {mod, mod_state}} = s) do
-    with {:keep_state, s} <- handle(mod, :handle_data, [:done, mod_state], nil, s) do
-      handle_data(copies, %{s | streaming: nil})
+    with {:keep_state, s} <-
+           handle(mod, :handle_data, [:done, mod_state], nil, %{s | streaming: nil}) do
+      handle_data(copies, s)
     end
   end
 
@@ -610,11 +611,23 @@ defmodule Postgrex.ReplicationConnection do
     {:stop, reason, s}
   end
 
-  defp reconnect_or_stop(error, _reason, _protocol, %{auto_reconnect: true} = s)
+  defp reconnect_or_stop(error, reason, _protocol, %{auto_reconnect: true} = s)
        when error in [:error, :disconnect] do
     %{state: {mod, mod_state}} = s
+
+    Logger.error(
+      "#{inspect(pid_or_name())} (#{inspect(mod)}) is reconnecting due to reason: #{Exception.format(:error, reason)}"
+    )
+
     {:keep_state, s} = maybe_handle(mod, :handle_disconnect, [mod_state], s)
     {:keep_state, %{s | streaming: nil}, {:next_event, :internal, {:connect, :reconnect}}}
+  end
+
+  defp pid_or_name do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, atom} when is_atom(atom) -> atom
+      _ -> self()
+    end
   end
 
   defp opts(), do: Process.get(__MODULE__)

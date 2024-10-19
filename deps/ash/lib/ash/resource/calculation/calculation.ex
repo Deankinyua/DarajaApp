@@ -13,6 +13,7 @@ defmodule Ash.Resource.Calculation do
             load: [],
             name: nil,
             public?: false,
+            async?: false,
             sensitive?: false,
             type: nil
 
@@ -26,6 +27,10 @@ defmodule Ash.Resource.Calculation do
       type: :any,
       doc: "The type of the calculation. See `Ash.Type` for more.",
       required: true
+    ],
+    async?: [
+      type: :boolean,
+      default: false
     ],
     constraints: [
       type: :keyword_list,
@@ -42,7 +47,7 @@ defmodule Ash.Resource.Calculation do
          ]},
       required: true,
       doc: """
-      The `module`, `{module, opts}` or `expr(...)` to use for the calculation. Also accepts a function that takes *a single record* and produces the result.
+      The `module`, `{module, opts}` or `expr(...)` to use for the calculation. Also accepts a function that takes *a list of records* and produces a result for each record.
       """
     ],
     description: [
@@ -124,6 +129,7 @@ defmodule Ash.Resource.Calculation do
           arguments: [__MODULE__.Argument.t()],
           calculation: module | {module, keyword},
           constraints: keyword,
+          async?: boolean,
           description: nil | String.t(),
           filterable?: boolean,
           load: keyword,

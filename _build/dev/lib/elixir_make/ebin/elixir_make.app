@@ -1,13 +1,15 @@
 {application,elixir_make,
-             [{config_mtime,1719649742},
+             [{config_mtime,1729332001},
               {optional_applications,[castore,certifi]},
               {applications,[kernel,stdlib,elixir,logger,castore,certifi]},
               {description,"A Make compiler for Mix"},
               {modules,['Elixir.ElixirMake.Artefact',
                         'Elixir.ElixirMake.Compiler',
+                        'Elixir.ElixirMake.Downloader',
+                        'Elixir.ElixirMake.Downloader.Httpc',
                         'Elixir.ElixirMake.Precompiler',
                         'Elixir.Mix.Tasks.Compile.ElixirMake',
                         'Elixir.Mix.Tasks.ElixirMake.Checksum',
                         'Elixir.Mix.Tasks.ElixirMake.Precompile']},
               {registered,[]},
-              {vsn,"0.8.3"}]}.
+              {vsn,"0.8.4"}]}.

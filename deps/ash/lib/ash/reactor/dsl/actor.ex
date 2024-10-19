@@ -9,7 +9,7 @@ defmodule Ash.Reactor.Dsl.Actor do
 
   @type t :: %__MODULE__{
           __identifier__: any,
-          source: Template.Input.t() | Template.Result.t() | Template.Value.t(),
+          source: Template.t(),
           transform: nil | (any -> any) | {module, keyword} | mfa
         }
 

@@ -11,8 +11,10 @@ defmodule Ash.Resource.Actions.Destroy do
     :error_handler,
     manual: nil,
     require_atomic?: Application.compile_env(:ash, :require_atomic_by_default?, true),
+    skip_unknown_inputs: [],
     atomic_upgrade?: true,
     atomic_upgrade_with: nil,
+    action_select: nil,
     arguments: [],
     touches_resources: [],
     delay_global_validations?: false,
@@ -32,12 +34,14 @@ defmodule Ash.Resource.Actions.Destroy do
           type: :destroy,
           name: atom,
           manual: module | nil,
+          action_select: list(atom) | nil,
           notifiers: list(module),
           arguments: list(Ash.Resource.Actions.Argument.t()),
           atomic_upgrade?: boolean(),
-          atomic_upgrade_with: nil | atom(),
+          skip_unknown_inputs: list(atom() | String.t()),
+          atomic_upgrade_with: atom() | nil,
           require_atomic?: boolean,
-          accept: list(atom),
+          accept: nil | list(atom),
           require_attributes: list(atom),
           allow_nil_input: list(atom),
           delay_global_validations?: boolean,
@@ -80,7 +84,7 @@ defmodule Ash.Resource.Actions.Destroy do
                   default: false
                 ],
                 atomic_upgrade_with: [
-                  type: {:one_of, [:atom, nil]},
+                  type: {:or, [:atom, nil]},
                   doc: """
                   Configure the read action used when performing atomic upgrades. Defaults to the primary read action.
                   """

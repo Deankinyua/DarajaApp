@@ -2,7 +2,7 @@ defmodule Ecto.MixProject do
   use Mix.Project
 
   @source_url "https://github.com/elixir-ecto/ecto"
-  @version "3.11.2"
+  @version "3.12.4"
 
   def project do
     [
@@ -60,11 +60,12 @@ defmodule Ecto.MixProject do
       skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       extras: extras(),
       groups_for_extras: groups_for_extras(),
-      groups_for_functions: [
+      groups_for_docs: [
         group_for_function("Query API"),
         group_for_function("Schema API"),
         group_for_function("Transaction API"),
-        group_for_function("Runtime API"),
+        group_for_function("Process API"),
+        group_for_function("Config API"),
         group_for_function("User callbacks")
       ],
       groups_for_modules: [
@@ -104,7 +105,37 @@ defmodule Ecto.MixProject do
           Ecto.Association.NotLoaded,
           Ecto.Embedded
         ]
-      ]
+      ],
+      before_closing_body_tag: fn
+        :html ->
+          """
+          <script src="https://cdn.jsdelivr.net/npm/mermaid@10.2.3/dist/mermaid.min.js"></script>
+          <script>
+            document.addEventListener("DOMContentLoaded", function () {
+              mermaid.initialize({
+                startOnLoad: false,
+                theme: document.body.className.includes("dark") ? "dark" : "default"
+              });
+              let id = 0;
+              for (const codeEl of document.querySelectorAll("pre code.mermaid")) {
+                const preEl = codeEl.parentElement;
+                const graphDefinition = codeEl.textContent;
+                const graphEl = document.createElement("div");
+                const graphId = "mermaid-graph-" + id++;
+                mermaid.render(graphId, graphDefinition).then(({svg, bindFunctions}) => {
+                  graphEl.innerHTML = svg;
+                  bindFunctions?.(graphEl);
+                  preEl.insertAdjacentElement("afterend", graphEl);
+                  preEl.remove();
+                });
+              }
+            });
+          </script>
+          """
+
+        _ ->
+          ""
+      end
     ]
   end
 

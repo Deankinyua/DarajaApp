@@ -29,6 +29,8 @@ defimpl Reactor.Dsl.Build, for: Ash.Reactor.Dsl.Create do
         arguments
         |> maybe_append(create.actor)
         |> maybe_append(create.tenant)
+        |> maybe_append(create.load)
+        |> maybe_append(create.context)
         |> Enum.concat(create.wait_for)
         |> Enum.concat([initial])
 
@@ -61,10 +63,6 @@ defimpl Reactor.Dsl.Build, for: Ash.Reactor.Dsl.Create do
       )
     end
   end
-
-  @doc false
-  @impl true
-  def transform(_create, dsl_state), do: {:ok, dsl_state}
 
   @doc false
   @impl true

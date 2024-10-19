@@ -27,6 +27,10 @@ defmodule Ash.Type.DateTime do
   end
 
   @impl true
+  def matches_type?(%DateTime{}, _), do: true
+  def matches_type?(_, _), do: false
+
+  @impl true
   def init(constraints) do
     {precision, constraints} = Keyword.pop(constraints, :precision)
     precision = precision || :second
@@ -84,7 +88,19 @@ defmodule Ash.Type.DateTime do
   end
 
   def cast_input(value, constraints) do
-    Ecto.Type.cast(storage_type(constraints), value)
+    case Ecto.Type.cast(storage_type(constraints), value) do
+      :error ->
+        case Ash.Type.cast_input(:date, value, []) do
+          {:ok, date} ->
+            cast_input(date, constraints)
+
+          _ ->
+            {:error, "Could not cast input to datetime"}
+        end
+
+      {:ok, value} ->
+        {:ok, value}
+    end
   end
 
   @impl true
@@ -105,4 +121,10 @@ defmodule Ash.Type.DateTime do
   def dump_to_native(value, constraints) do
     Ecto.Type.dump(storage_type(constraints), value)
   end
+end
+
+import Ash.Type.Comparable
+
+defcomparable left :: DateTime, right :: DateTime do
+  DateTime.compare(left, right)
 end

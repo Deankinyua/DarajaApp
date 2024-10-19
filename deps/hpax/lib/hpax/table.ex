@@ -1,15 +1,20 @@
 defmodule HPAX.Table do
   @moduledoc false
 
+  @enforce_keys [:max_table_size, :huffman_encoding]
   defstruct [
     :max_table_size,
+    :huffman_encoding,
     entries: [],
     size: 0,
     length: 0
   ]
 
+  @type huffman_encoding() :: :always | :never
+
   @type t() :: %__MODULE__{
           max_table_size: non_neg_integer(),
+          huffman_encoding: huffman_encoding(),
           entries: [{binary(), binary()}],
           size: non_neg_integer(),
           length: non_neg_integer()
@@ -88,9 +93,11 @@ defmodule HPAX.Table do
   The maximum size is not the maximum number of entries but rather the maximum size as defined in
   http://httpwg.org/specs/rfc7541.html#maximum.table.size.
   """
-  @spec new(non_neg_integer()) :: t()
-  def new(max_table_size) do
-    %__MODULE__{max_table_size: max_table_size}
+  @spec new(non_neg_integer(), huffman_encoding()) :: t()
+  def new(max_table_size, huffman_encoding)
+      when is_integer(max_table_size) and max_table_size >= 0 and
+             huffman_encoding in [:always, :never] do
+    %__MODULE__{max_table_size: max_table_size, huffman_encoding: huffman_encoding}
   end
 
   @doc """
@@ -150,7 +157,7 @@ defmodule HPAX.Table do
   end
 
   def lookup_by_index(%__MODULE__{entries: entries, length: length}, index)
-      when index in @dynamic_table_start..(@dynamic_table_start + length - 1) do
+      when index >= @dynamic_table_start and index <= @dynamic_table_start + length - 1 do
     {:ok, Enum.at(entries, index - @dynamic_table_start)}
   end
 

@@ -125,7 +125,16 @@ defmodule Ecto.Changeset do
 
   When applying changes using `cast/4`, an empty value will be automatically
   converted to the field's default value. If the field is an array type, any
-  empty value inside the array will be removed.
+  empty value inside the array will be removed. When a plain map is used in
+  the data portion of a schemaless changeset, every field's default value is
+  considered to be `nil`. For example:
+
+      iex> data = %{name: "Bob"}
+      iex> types = %{name: :string}
+      iex> params = %{name: ""}
+      iex> changeset = Ecto.Changeset.cast({data, types}, params, Map.keys(types))
+      iex> changeset.changes
+      %{name: nil}
 
   Empty values are stored as a list in the changeset's `:empty_values` field.
   The list contains elements of type `t:empty_value/0`. Those are either values,
@@ -351,7 +360,7 @@ defmodule Ecto.Changeset do
             constraints: [],
             filters: %{},
             action: nil,
-            types: nil,
+            types: %{},
             empty_values: @empty_values,
             repo: nil,
             repo_opts: []
@@ -367,10 +376,10 @@ defmodule Ecto.Changeset do
           prepare: [(t -> t)],
           errors: [{atom, error}],
           constraints: [constraint],
-          validations: [{atom, term}],
+          validations: [validation],
           filters: %{optional(atom) => term},
           action: action,
-          types: nil | %{atom => Ecto.Type.t() | {:assoc, term()} | {:embed, term()}}
+          types: types
         }
 
   @type t :: t(Ecto.Schema.t() | map | nil)
@@ -385,8 +394,9 @@ defmodule Ecto.Changeset do
           error_type: atom
         }
   @type data :: map()
-  @type types :: map()
+  @type types :: %{atom => Ecto.Type.t() | {:assoc, term()} | {:embed, term()}}
   @type traverse_result :: %{atom => [term] | traverse_result}
+  @type validation :: {atom, term}
 
   @typedoc """
   A possible value that you can pass to the `:empty_values` option.
@@ -468,10 +478,6 @@ defmodule Ecto.Changeset do
 
   def change({data, types}, changes) when is_map(data) do
     change(%Changeset{data: data, types: Enum.into(types, %{}), valid?: true}, changes)
-  end
-
-  def change(%Changeset{types: nil}, _changes) do
-    raise ArgumentError, "changeset does not have types information"
   end
 
   def change(%Changeset{changes: changes, types: types} = changeset, new_changes)
@@ -727,10 +733,6 @@ defmodule Ecto.Changeset do
 
   def cast({data, types}, params, permitted, opts) when is_map(data) do
     cast(data, types, %{}, params, permitted, opts)
-  end
-
-  def cast(%Changeset{types: nil}, _params, _permitted, _opts) do
-    raise ArgumentError, "changeset does not have types information"
   end
 
   def cast(%Changeset{} = changeset, params, permitted, opts) do
@@ -1025,7 +1027,8 @@ defmodule Ecto.Changeset do
 
     * If there is an associated child with an ID and its ID is not given
       as parameter, the `:on_replace` callback for that association will
-      be invoked (see the "On replace" section on the module documentation)
+      be invoked (see the ["On replace" section](#module-the-on_replace-option)
+      on the module documentation)
 
   If two or more addresses have the same IDs, Ecto will consider that an
   error and add an error to the changeset saying that there are duplicate
@@ -1076,7 +1079,7 @@ defmodule Ecto.Changeset do
   of `cast_assoc/3`. This opens up the possibility to work on a subset of the data,
   instead of all associations in the database.
 
-  Taking the initial example of users having addresses imagine those addresses
+  Taking the initial example of users having addresses, imagine those addresses
   are set up to belong to a country. If you want to allow users to bulk edit all
   addresses that belong to a single country, you can do so by changing the preload
   query:
@@ -1193,6 +1196,7 @@ defmodule Ecto.Changeset do
       `cast_assoc/3` for more information
 
   """
+  @spec cast_assoc(t, atom, Keyword.t()) :: t
   def cast_assoc(changeset, name, opts \\ []) when is_atom(name) do
     cast_relation(:assoc, changeset, name, opts)
   end
@@ -1240,6 +1244,7 @@ defmodule Ecto.Changeset do
       `cast_assoc/3` for more information
 
   """
+  @spec cast_embed(t, atom, Keyword.t()) :: t
   def cast_embed(changeset, name, opts \\ []) when is_atom(name) do
     cast_relation(:embed, changeset, name, opts)
   end
@@ -1284,7 +1289,7 @@ defmodule Ecto.Changeset do
 
           {:error, {message, meta}} ->
             meta = [validation: type] ++ meta
-            error = {key, {message(opts, :invalid_message, message), meta}}
+            error = {key, message(opts, :invalid_message, message, meta)}
             %{changeset | errors: [error | changeset.errors], valid?: false}
 
           # ignore or ok with change == original
@@ -1391,7 +1396,7 @@ defmodule Ecto.Changeset do
 
     if required? and Relation.empty?(relation, current_changes) do
       errors = [
-        {name, {message(opts, :required_message, "can't be blank"), [validation: :required]}}
+        {name, message(opts, :required_message, "can't be blank", validation: :required)}
         | errors
       ]
 
@@ -1502,10 +1507,10 @@ defmodule Ecto.Changeset do
 
   defp cast_merge(cs1, cs2) do
     new_params = (cs1.params || cs2.params) && Map.merge(cs1.params || %{}, cs2.params || %{})
+    new_types = Map.merge(cs1.types, cs2.types)
     new_changes = Map.merge(cs1.changes, cs2.changes)
     new_errors = Enum.uniq(cs1.errors ++ cs2.errors)
     new_required = Enum.uniq(cs1.required ++ cs2.required)
-    new_types = cs1.types || cs2.types
     new_valid? = cs1.valid? and cs2.valid?
 
     %{
@@ -1675,6 +1680,8 @@ defmodule Ecto.Changeset do
       [%Post{id: 1, title: "world"}]
 
   """
+  @spec get_assoc(t, atom, :changeset | :struct) ::
+          [t | Ecto.Schema.t()] | t | Ecto.Schema.t() | nil
   def get_assoc(changeset, name, as \\ :changeset)
 
   def get_assoc(%Changeset{} = changeset, name, :struct) do
@@ -1719,10 +1726,6 @@ defmodule Ecto.Changeset do
 
   def get_embed(%Changeset{} = changeset, name, :changeset) do
     get_relation(:embed, changeset, name)
-  end
-
-  defp get_relation(_tag, %{types: nil}, _name) do
-    raise ArgumentError, "changeset does not have types information"
   end
 
   defp get_relation(tag, %{changes: changes, data: data, types: types}, name) do
@@ -1809,7 +1812,7 @@ defmodule Ecto.Changeset do
 
   The given `function` is invoked with the change value only if there
   is a change for `key`. Once the function is invoked, it behaves as
-  `put_changed/3`.
+  `put_change/3`.
 
   Note that the value of the change can still be `nil` (unless the field
   was marked as required on `validate_required/3`).
@@ -1864,10 +1867,6 @@ defmodule Ecto.Changeset do
 
   """
   @spec put_change(t, atom, term) :: t
-  def put_change(%Changeset{types: nil}, _key, _value) do
-    raise ArgumentError, "changeset does not have types information"
-  end
-
   def put_change(%Changeset{data: data, types: types} = changeset, key, value) do
     type = Map.get(types, key)
 
@@ -1919,7 +1918,7 @@ defmodule Ecto.Changeset do
   if a Post has many Comments, it allows you to add, remove or change all
   comments at once. If your goal is to simply add a new comment to a post,
   then it is preferred to do so manually, as we will describe later in the
-  "Example: Adding a comment to a post" section.
+  ["Example: Adding a comment to a post" section](#put_assoc/4-example-adding-a-comment-to-a-post).
 
   This function requires the associated data to have been preloaded, except
   when the parent changeset has been newly built and not yet persisted.
@@ -1981,10 +1980,10 @@ defmodule Ecto.Changeset do
       update or delete them). Different to passing changesets, structs are not
       change tracked in any fashion. In other words, if you change a comment
       struct and give it to `put_assoc/4`, the updates in the struct won't be
-      persisted. You must use changesets instead. `put_assoc/4` with structs
+      persisted. You must use changesets, keyword lists, or maps instead. `put_assoc/4` with structs
       only takes care of guaranteeing that the comments and the parent data
       are associated. This is extremely useful when associating existing data,
-      as we will see in the "Example: Adding tags to a post" section.
+      as we will see in the ["Example: Adding tags to a post" section](#put_assoc/4-example-adding-tags-to-a-post).
 
   Once the parent changeset is given to an `Ecto.Repo` function, all entries
   will be inserted/updated/deleted within the same transaction.
@@ -2027,7 +2026,7 @@ defmodule Ecto.Changeset do
   beginning, which is that there is only one new comment.
 
   In cases like above, when you want to work only on a single entry, it is
-  much easier to simply work on the associated directly. For example, we
+  much easier to simply work on the association directly. For example, we
   could instead set the `post` association in the comment:
 
       %Comment{body: "better example"}
@@ -2093,7 +2092,9 @@ defmodule Ecto.Changeset do
     * The [associations cheatsheet](associations.html)
     * The [Constraints and Upserts guide](constraints-and-upserts.html)
     * The [Polymorphic associations with many to many guide](polymorphic-associations-with-many-to-many.html)
+
   """
+  @spec put_assoc(t, atom, term, Keyword.t()) :: t
   def put_assoc(%Changeset{} = changeset, name, value, opts \\ []) do
     put_relation(:assoc, changeset, name, value, opts)
   end
@@ -2115,12 +2116,9 @@ defmodule Ecto.Changeset do
   Although this function accepts an `opts` argument, there are no options
   currently supported by `put_embed/4`.
   """
+  @spec put_embed(t, atom, term, Keyword.t()) :: t
   def put_embed(%Changeset{} = changeset, name, value, opts \\ []) do
     put_relation(:embed, changeset, name, value, opts)
-  end
-
-  defp put_relation(_tag, %{types: nil}, _name, _value, _opts) do
-    raise ArgumentError, "changeset does not have types information"
   end
 
   defp put_relation(tag, changeset, name, value, _opts) do
@@ -2155,10 +2153,6 @@ defmodule Ecto.Changeset do
 
   """
   @spec force_change(t, atom, term) :: t
-  def force_change(%Changeset{types: nil}, _key, _value) do
-    raise ArgumentError, "changeset does not have types information"
-  end
-
   def force_change(%Changeset{types: types} = changeset, key, value) do
     case Map.get(types, key) do
       {tag, _} when tag in @relations ->
@@ -2242,7 +2236,7 @@ defmodule Ecto.Changeset do
       iex> {:error, changeset} = apply_action(changeset, :update)
       %Ecto.Changeset{action: :update}
   """
-  @spec apply_action(t, atom) :: {:ok, Ecto.Schema.t() | data} | {:error, t}
+  @spec apply_action(t, action) :: {:ok, Ecto.Schema.t() | data} | {:error, t}
   def apply_action(%Changeset{} = changeset, action) when is_atom(action) do
     if changeset.valid? do
       {:ok, apply_changes(changeset)}
@@ -2270,7 +2264,7 @@ defmodule Ecto.Changeset do
 
   See `apply_action/2` for more information.
   """
-  @spec apply_action!(t, atom) :: Ecto.Schema.t() | data
+  @spec apply_action!(t, action) :: Ecto.Schema.t() | data
   def apply_action!(%Changeset{} = changeset, action) do
     case apply_action(changeset, action) do
       {:ok, data} ->
@@ -2417,7 +2411,7 @@ defmodule Ecto.Changeset do
   @spec validate_change(
           t,
           atom,
-          (atom, term -> [{atom, String.t()} | {atom, {String.t(), Keyword.t()}}])
+          (atom, term -> [{atom, String.t()} | {atom, error}])
         ) :: t
   def validate_change(%Changeset{} = changeset, field, validator) when is_atom(field) do
     %{changes: changes, types: types, errors: errors} = changeset
@@ -2463,7 +2457,7 @@ defmodule Ecto.Changeset do
           t,
           atom,
           term,
-          (atom, term -> [{atom, String.t()} | {atom, {String.t(), Keyword.t()}}])
+          (atom, term -> [{atom, String.t()} | {atom, error}])
         ) :: t
   def validate_change(
         %Changeset{validations: validations} = changeset,
@@ -2489,7 +2483,7 @@ defmodule Ecto.Changeset do
   If a field is given to `validate_required/3` but it has not been passed
   as parameter during `cast/3` (i.e. it has not been changed), then
   `validate_required/3` will check for its current value in the data.
-  If the data contains an non-empty value for the field, then no error is
+  If the data contains a non-empty value for the field, then no error is
   added. This allows developers to use `validate_required/3` to perform
   partial updates. For example, on `insert` all fields would be required,
   because their default values on the data are all `nil`, but on `update`,
@@ -2507,7 +2501,9 @@ defmodule Ecto.Changeset do
 
   ## Options
 
-    * `:message` - the message on failure, defaults to "can't be blank"
+    * `:message` - the message on failure, defaults to "can't be blank".
+      Can also be a `{msg, opts}` tuple, to provide additional options
+      when using `traverse_errors/2`.
 
   ## Examples
 
@@ -2531,8 +2527,12 @@ defmodule Ecto.Changeset do
         %{changeset | required: fields ++ required}
 
       _ ->
-        message = message(opts, "can't be blank")
-        new_errors = Enum.map(fields_with_errors, &{&1, {message, [validation: :required]}})
+        new_errors =
+          Enum.map(
+            fields_with_errors,
+            &{&1, message(opts, "can't be blank", validation: :required)}
+          )
+
         changes = Map.drop(changes, fields_with_errors)
 
         %{
@@ -2599,7 +2599,8 @@ defmodule Ecto.Changeset do
   ## Options
 
     * `:message` - the message in case the constraint check fails,
-      defaults to "has already been taken".
+      defaults to "has already been taken". Can also be a `{msg, opts}` tuple,
+      to provide additional options when using `traverse_errors/2`.
 
     * `:error_key` - the key to which changeset error will be added when
       check fails, defaults to the first field name of the given list of
@@ -2700,10 +2701,10 @@ defmodule Ecto.Changeset do
       if repo.exists?(query, repo_opts) do
         error_key = Keyword.get(opts, :error_key, hd(fields))
 
-        add_error(changeset, error_key, message(opts, "has already been taken"),
-          validation: :unsafe_unique,
-          fields: fields
-        )
+        {error_message, keys} =
+          message(opts, "has already been taken", validation: :unsafe_unique, fields: fields)
+
+        add_error(changeset, error_key, error_message, keys)
       else
         changeset
       end
@@ -2826,9 +2827,14 @@ defmodule Ecto.Changeset do
 
   The format has to be expressed as a regular expression.
 
+  The validation only runs if a change for the given `field` exists and the
+  change value is not `nil`.
+
   ## Options
 
-    * `:message` - the message on failure, defaults to "has invalid format"
+    * `:message` - the message on failure, defaults to "has invalid format".
+      Can also be a `{msg, opts}` tuple, to provide additional options
+      when using `traverse_errors/2`.
 
   ## Examples
 
@@ -2845,16 +2851,21 @@ defmodule Ecto.Changeset do
 
       if value =~ format,
         do: [],
-        else: [{field, {message(opts, "has invalid format"), [validation: :format]}}]
+        else: [{field, message(opts, "has invalid format", validation: :format)}]
     end)
   end
 
   @doc """
   Validates a change is included in the given enumerable.
 
+  The validation only runs if a change for the given `field` exists and the
+  change value is not `nil`.
+
   ## Options
 
-    * `:message` - the message on failure, defaults to "is invalid"
+    * `:message` - the message on failure, defaults to "is invalid".
+      Can also be a `{msg, opts}` tuple, to provide additional options
+      when using `traverse_errors/2`.
 
   ## Examples
 
@@ -2869,7 +2880,7 @@ defmodule Ecto.Changeset do
 
       if Ecto.Type.include?(type, value, data),
         do: [],
-        else: [{field, {message(opts, "is invalid"), [validation: :inclusion, enum: data]}}]
+        else: [{field, message(opts, "is invalid", validation: :inclusion, enum: data)}]
     end)
   end
 
@@ -2882,9 +2893,14 @@ defmodule Ecto.Changeset do
 
   Type of the field must be array.
 
+  The validation only runs if a change for the given `field` exists and the
+  change value is not `nil`.
+
   ## Options
 
-    * `:message` - the message on failure, defaults to "has an invalid entry"
+    * `:message` - the message on failure, defaults to "has an invalid entry".
+      Can also be a `{msg, opts}` tuple, to provide additional options
+      when using `traverse_errors/2`.
 
   ## Examples
 
@@ -2908,7 +2924,7 @@ defmodule Ecto.Changeset do
 
       case Enum.any?(value, fn element -> not Ecto.Type.include?(element_type, element, data) end) do
         true ->
-          [{field, {message(opts, "has an invalid entry"), [validation: :subset, enum: data]}}]
+          [{field, message(opts, "has an invalid entry", validation: :subset, enum: data)}]
 
         false ->
           []
@@ -2919,9 +2935,14 @@ defmodule Ecto.Changeset do
   @doc """
   Validates a change is not included in the given enumerable.
 
+  The validation only runs if a change for the given `field` exists and the
+  change value is not `nil`.
+
   ## Options
 
-    * `:message` - the message on failure, defaults to "is reserved"
+    * `:message` - the message on failure, defaults to "is reserved".
+      Can also be a `{msg, opts}` tuple, to provide additional options
+      when using `traverse_errors/2`.
 
   ## Examples
 
@@ -2934,7 +2955,7 @@ defmodule Ecto.Changeset do
       type = Map.fetch!(changeset.types, field)
 
       if Ecto.Type.include?(type, value, data),
-        do: [{field, {message(opts, "is reserved"), [validation: :exclusion, enum: data]}}],
+        do: [{field, message(opts, "is reserved", validation: :exclusion, enum: data)}],
         else: []
     end)
   end
@@ -2947,6 +2968,9 @@ defmodule Ecto.Changeset do
   it's likely that the limit ignores graphemes and limits the number
   of unicode characters. Then consider using the `:count` option to
   limit the number of codepoints (`:codepoints`), or limit the number of bytes (`:bytes`).
+
+  The validation only runs if a change for the given `field` exists and the
+  change value is not `nil`.
 
   ## Options
 
@@ -2967,6 +2991,8 @@ defmodule Ecto.Changeset do
         * "should have %{count} item(s)"
         * "should have at least %{count} item(s)"
         * "should have at most %{count} item(s)"
+      Can also be a `{msg, opts}` tuple, to provide additional options
+      when using `traverse_errors/2`.
 
   ## Examples
 
@@ -3029,70 +3055,121 @@ defmodule Ecto.Changeset do
 
   defp wrong_length(:string, _length, value, opts),
     do:
-      {message(opts, "should be %{count} character(s)"),
-       count: value, validation: :length, kind: :is, type: :string}
+      message(opts, "should be %{count} character(s)",
+        count: value,
+        validation: :length,
+        kind: :is,
+        type: :string
+      )
 
   defp wrong_length(:binary, _length, value, opts),
     do:
-      {message(opts, "should be %{count} byte(s)"),
-       count: value, validation: :length, kind: :is, type: :binary}
+      message(opts, "should be %{count} byte(s)",
+        count: value,
+        validation: :length,
+        kind: :is,
+        type: :binary
+      )
 
   defp wrong_length(:list, _length, value, opts),
     do:
-      {message(opts, "should have %{count} item(s)"),
-       count: value, validation: :length, kind: :is, type: :list}
+      message(opts, "should have %{count} item(s)",
+        count: value,
+        validation: :length,
+        kind: :is,
+        type: :list
+      )
 
   defp wrong_length(:map, _length, value, opts),
     do:
-      {message(opts, "should have %{count} item(s)"),
-       count: value, validation: :length, kind: :is, type: :map}
+      message(opts, "should have %{count} item(s)",
+        count: value,
+        validation: :length,
+        kind: :is,
+        type: :map
+      )
 
   defp too_short(_type, length, value, _opts) when length >= value, do: nil
 
   defp too_short(:string, _length, value, opts) do
-    {message(opts, "should be at least %{count} character(s)"),
-     count: value, validation: :length, kind: :min, type: :string}
+    message(opts, "should be at least %{count} character(s)",
+      count: value,
+      validation: :length,
+      kind: :min,
+      type: :string
+    )
   end
 
   defp too_short(:binary, _length, value, opts) do
-    {message(opts, "should be at least %{count} byte(s)"),
-     count: value, validation: :length, kind: :min, type: :binary}
+    message(opts, "should be at least %{count} byte(s)",
+      count: value,
+      validation: :length,
+      kind: :min,
+      type: :binary
+    )
   end
 
   defp too_short(:list, _length, value, opts) do
-    {message(opts, "should have at least %{count} item(s)"),
-     count: value, validation: :length, kind: :min, type: :list}
+    message(opts, "should have at least %{count} item(s)",
+      count: value,
+      validation: :length,
+      kind: :min,
+      type: :list
+    )
   end
 
   defp too_short(:map, _length, value, opts) do
-    {message(opts, "should have at least %{count} item(s)"),
-     count: value, validation: :length, kind: :min, type: :map}
+    message(opts, "should have at least %{count} item(s)",
+      count: value,
+      validation: :length,
+      kind: :min,
+      type: :map
+    )
   end
 
   defp too_long(_type, length, value, _opts) when length <= value, do: nil
 
   defp too_long(:string, _length, value, opts) do
-    {message(opts, "should be at most %{count} character(s)"),
-     count: value, validation: :length, kind: :max, type: :string}
+    message(opts, "should be at most %{count} character(s)",
+      count: value,
+      validation: :length,
+      kind: :max,
+      type: :string
+    )
   end
 
   defp too_long(:binary, _length, value, opts) do
-    {message(opts, "should be at most %{count} byte(s)"),
-     count: value, validation: :length, kind: :max, type: :binary}
+    message(opts, "should be at most %{count} byte(s)",
+      count: value,
+      validation: :length,
+      kind: :max,
+      type: :binary
+    )
   end
 
   defp too_long(:list, _length, value, opts) do
-    {message(opts, "should have at most %{count} item(s)"),
-     count: value, validation: :length, kind: :max, type: :list}
+    message(opts, "should have at most %{count} item(s)",
+      count: value,
+      validation: :length,
+      kind: :max,
+      type: :list
+    )
   end
 
   defp too_long(:map, _length, value, opts) do
-    {message(opts, "should have at most %{count} item(s)"),
-     count: value, validation: :length, kind: :max, type: :map}
+    message(opts, "should have at most %{count} item(s)",
+      count: value,
+      validation: :length,
+      kind: :max,
+      type: :map
+    )
   end
 
   @doc """
   Validates the properties of a number.
+
+  The validation only runs if a change for the given `field` exists and the
+  change value is not `nil`.
 
   ## Options
 
@@ -3109,6 +3186,8 @@ defmodule Ecto.Changeset do
       * "must be greater than or equal to %{number}"
       * "must be equal to %{number}"
       * "must be not equal to %{number}"
+      Can also be a `{msg, opts}` tuple, to provide additional options
+      when using `traverse_errors/2`.
 
   ## Examples
 
@@ -3121,14 +3200,14 @@ defmodule Ecto.Changeset do
   def validate_number(changeset, field, opts) do
     validate_change(changeset, field, {:number, opts}, fn
       field, value ->
-        {message, opts} = Keyword.pop(opts, :message)
-
         unless valid_number?(value) do
           raise ArgumentError,
                 "expected field `#{field}` to be a decimal, integer, or float, got: #{inspect(value)}"
         end
 
-        Enum.find_value(opts, [], fn {spec_key, target_value} ->
+        opts
+        |> Keyword.drop([:message])
+        |> Enum.find_value([], fn {spec_key, target_value} ->
           case Map.fetch(@number_validators, spec_key) do
             {:ok, {spec_function, default_message}} ->
               unless valid_number?(target_value) do
@@ -3139,10 +3218,11 @@ defmodule Ecto.Changeset do
               compare_numbers(
                 field,
                 value,
-                message || default_message,
+                default_message,
                 spec_key,
                 spec_function,
-                target_value
+                target_value,
+                opts
               )
 
             :error ->
@@ -3167,31 +3247,32 @@ defmodule Ecto.Changeset do
   defp compare_numbers(
          field,
          %Decimal{} = value,
-         message,
+         default_message,
          spec_key,
          _spec_function,
-         %Decimal{} = target_value
+         %Decimal{} = target_value,
+         opts
        ) do
     result = Decimal.compare(value, target_value)
 
     case decimal_compare(result, spec_key) do
       true -> nil
-      false -> [{field, {message, validation: :number, kind: spec_key, number: target_value}}]
+      false -> [{field, message(opts, default_message, validation: :number, kind: spec_key, number: target_value)}]
     end
   end
 
-  defp compare_numbers(field, value, message, spec_key, spec_function, %Decimal{} = target_value) do
-    compare_numbers(field, decimal_new(value), message, spec_key, spec_function, target_value)
+  defp compare_numbers(field, value, default_message, spec_key, spec_function, %Decimal{} = target_value, opts) do
+    compare_numbers(field, decimal_new(value), default_message, spec_key, spec_function, target_value, opts)
   end
 
-  defp compare_numbers(field, %Decimal{} = value, message, spec_key, spec_function, target_value) do
-    compare_numbers(field, value, message, spec_key, spec_function, decimal_new(target_value))
+  defp compare_numbers(field, %Decimal{} = value, default_message, spec_key, spec_function, target_value, opts) do
+    compare_numbers(field, value, default_message, spec_key, spec_function, decimal_new(target_value), opts)
   end
 
-  defp compare_numbers(field, value, message, spec_key, spec_function, target_value) do
+  defp compare_numbers(field, value, default_message, spec_key, spec_function, target_value, opts) do
     case apply(spec_function, [value, target_value]) do
       true -> nil
-      false -> [{field, {message, validation: :number, kind: spec_key, number: target_value}}]
+      false -> [{field, message(opts, default_message, validation: :number, kind: spec_key, number: target_value)}]
     end
   end
 
@@ -3224,7 +3305,9 @@ defmodule Ecto.Changeset do
 
   ## Options
 
-    * `:message` - the message on failure, defaults to "does not match confirmation"
+    * `:message` - the message on failure, defaults to "does not match confirmation".
+      Can also be a `{msg, opts}` tuple, to provide additional options
+      when using `traverse_errors/2`.
     * `:required` - boolean, sets whether existence of confirmation parameter
       is required for addition of error. Defaults to false
 
@@ -3253,8 +3336,7 @@ defmodule Ecto.Changeset do
 
         %{^error_param => _} ->
           [
-            {error_field,
-             {message(opts, "does not match confirmation"), [validation: :confirmation]}}
+            {error_field, message(opts, "does not match confirmation", validation: :confirmation)}
           ]
 
         %{} ->
@@ -3277,11 +3359,21 @@ defmodule Ecto.Changeset do
     required = Keyword.get(opts, :required, false)
 
     if required,
-      do: [{error_field, {message(opts, "can't be blank"), [validation: :required]}}],
+      do: [{error_field, message(opts, "can't be blank", validation: :required)}],
       else: []
   end
 
-  defp message(opts, key \\ :message, default) do
+  defp message(opts, key \\ :message, default, message_opts) do
+    case Keyword.get(opts, key, default) do
+      {message, extra_opts} when is_binary(message) and is_list(extra_opts) ->
+        {message, Keyword.merge(message_opts, extra_opts)}
+
+      message when is_binary(message) ->
+        {message, message_opts}
+    end
+  end
+
+  defp constraint_message(opts, key \\ :message, default) do
     Keyword.get(opts, key, default)
   end
 
@@ -3294,7 +3386,9 @@ defmodule Ecto.Changeset do
 
   ## Options
 
-    * `:message` - the message on failure, defaults to "must be accepted"
+    * `:message` - the message on failure, defaults to "must be accepted".
+      Can also be a `{msg, opts}` tuple, to provide additional options
+      when using `traverse_errors/2`.
 
   ## Examples
 
@@ -3324,7 +3418,7 @@ defmodule Ecto.Changeset do
 
     case Ecto.Type.cast(:boolean, value) do
       {:ok, true} -> []
-      _ -> [{field, {message(opts, "must be accepted"), validation: :acceptance}}]
+      _ -> [{field, message(opts, "must be accepted", validation: :acceptance)}]
     end
   end
 
@@ -3552,9 +3646,10 @@ defmodule Ecto.Changeset do
       `starts_with?` `:name` to this changeset constraint.
 
   """
+  @spec check_constraint(t, atom, Keyword.t()) :: t
   def check_constraint(changeset, field, opts \\ []) do
     name = opts[:name] || raise ArgumentError, "must supply the name of the constraint"
-    message = message(opts, "is invalid")
+    message = constraint_message(opts, "is invalid")
     match_type = Keyword.get(opts, :match, :exact)
 
     add_constraint(changeset, :check, name, match_type, field, message, :check)
@@ -3699,7 +3794,7 @@ defmodule Ecto.Changeset do
 
   def unique_constraint(changeset, [first_field | _] = fields, opts) do
     name = opts[:name] || unique_index_name(changeset, fields)
-    message = message(opts, "has already been taken")
+    message = constraint_message(opts, "has already been taken")
     match_type = Keyword.get(opts, :match, :exact)
     error_key = Keyword.get(opts, :error_key, first_field)
 
@@ -3765,7 +3860,7 @@ defmodule Ecto.Changeset do
   def foreign_key_constraint(changeset, field, opts \\ []) do
     name = opts[:name] || "#{get_source(changeset)}_#{get_field_source(changeset, field)}_fkey"
     match_type = Keyword.get(opts, :match, :exact)
-    message = message(opts, "does not exist")
+    message = constraint_message(opts, "does not exist")
 
     add_constraint(changeset, :foreign_key, name, match_type, field, message, :foreign)
   end
@@ -3823,7 +3918,7 @@ defmodule Ecto.Changeset do
         end
 
     match_type = Keyword.get(opts, :match, :exact)
-    message = message(opts, "does not exist")
+    message = constraint_message(opts, "does not exist")
 
     add_constraint(changeset, :foreign_key, name, match_type, assoc, message, :assoc)
   end
@@ -3879,7 +3974,7 @@ defmodule Ecto.Changeset do
           related: related
         } ->
           {opts[:name] || "#{related.__schema__(:source)}_#{related_key}_fkey",
-           message(opts, no_assoc_message(cardinality))}
+           constraint_message(opts, no_assoc_message(cardinality))}
 
         other ->
           raise ArgumentError,
@@ -3917,7 +4012,7 @@ defmodule Ecto.Changeset do
     name =
       opts[:name] || "#{get_source(changeset)}_#{get_field_source(changeset, field)}_exclusion"
 
-    message = message(opts, "violates an exclusion constraint")
+    message = constraint_message(opts, "violates an exclusion constraint")
     match_type = Keyword.get(opts, :match, :exact)
 
     add_constraint(changeset, :exclusion, name, match_type, field, message, :exclusion)
@@ -4129,7 +4224,7 @@ defmodule Ecto.Changeset do
   """
   @spec traverse_validations(
           t,
-          (error -> String.t()) | (Changeset.t(), atom, error -> String.t())
+          (validation -> String.t()) | (Changeset.t(), atom, validation -> String.t())
         ) :: traverse_result
   def traverse_validations(
         %Changeset{validations: validations, changes: changes, types: types} = changeset,
@@ -4147,8 +4242,9 @@ defimpl Inspect, for: Ecto.Changeset do
   import Inspect.Algebra
 
   def inspect(%Ecto.Changeset{data: data} = changeset, opts) do
+    # The trailing element is skipped later on
     list =
-      for attr <- [:action, :changes, :errors, :data, :valid?] do
+      for attr <- [:action, :changes, :errors, :data, :valid?, :action] do
         {attr, Map.get(changeset, attr)}
       end
 
@@ -4165,20 +4261,20 @@ defimpl Inspect, for: Ecto.Changeset do
           []
       end
 
-    container_doc("#Ecto.Changeset<", list, ">", opts, fn
-      {:action, action}, opts ->
+    container_doc("#Ecto.Changeset<", list, ">", %{limit: 5}, fn
+      {:action, action}, _opts ->
         concat("action: ", to_doc(action, opts))
 
-      {:changes, changes}, opts ->
+      {:changes, changes}, _opts ->
         concat("changes: ", changes |> filter(redacted_fields) |> to_doc(opts))
 
       {:data, data}, _opts ->
         concat("data: ", to_struct(data, opts))
 
-      {:errors, errors}, opts ->
+      {:errors, errors}, _opts ->
         concat("errors: ", to_doc(errors, opts))
 
-      {:valid?, valid?}, opts ->
+      {:valid?, valid?}, _opts ->
         concat("valid?: ", to_doc(valid?, opts))
     end)
   end

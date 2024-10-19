@@ -2,7 +2,7 @@
 defmodule Expo.MixProject do
   use Mix.Project
 
-  @version "0.5.2"
+  @version "1.1.0"
   @source_url "https://github.com/elixir-gettext/expo"
   @description "Low-level Gettext file handling (.po/.pot/.mo file writer and parser)."
 
@@ -67,7 +67,7 @@ defmodule Expo.MixProject do
   defp deps do
     [
       # Dev/test dependencies
-      {:credo, "~> 1.0", only: [:dev], runtime: false},
+      {:credo, "~> 1.7", only: [:dev], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev], runtime: false},
       {:ex_doc, ">= 0.0.0", only: [:dev], runtime: false},
       {:excoveralls, "~> 0.17", only: [:test], runtime: false}

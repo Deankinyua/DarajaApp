@@ -471,10 +471,14 @@ defmodule Ash.Query do
       type: {:protocol, Ash.ToTenant},
       doc: "set the tenant on the query"
     ],
+    load: [
+      type: :any,
+      doc: "A load statement to apply to the query"
+    ],
     skip_unknown_inputs: [
-      type: {:list, {:or, [:atom, :string]}},
+      type: {:wrap_list, {:or, [:atom, :string]}},
       doc:
-        "A list of inputs that, if provided, will be ignored if they are not recognized by the action."
+        "A list of inputs that, if provided, will be ignored if they are not recognized by the action. Use `:*` to indicate all unknown keys."
     ]
   ]
 
@@ -500,6 +504,7 @@ defmodule Ash.Query do
 
     domain =
       query.domain || opts[:domain] || Ash.Resource.Info.domain(query.resource) ||
+        Ash.Actions.Helpers.maybe_embedded_domain(query.resource) ||
         raise ArgumentError,
               "Could not determine domain for query. Provide the `domain` option or configure a domain in the resource directly."
 
@@ -518,22 +523,35 @@ defmodule Ash.Query do
     action = Ash.Resource.Info.action(query.resource, action_name, :read)
 
     if action do
-      name = "query:" <> Ash.Resource.Info.trace_name(query.resource) <> ":#{action_name}"
+      name = fn ->
+        "query:" <> Ash.Resource.Info.trace_name(query.resource) <> ":#{action_name}"
+      end
+
+      query =
+        if opts[:load] do
+          load(query, opts[:load])
+        else
+          query
+        end
 
       Ash.Tracer.span :query,
                       name,
                       opts[:tracer] do
-        Ash.Tracer.telemetry_span [:ash, :query], %{
-          resource_short_name: Ash.Resource.Info.short_name(query.resource)
-        } do
-          metadata = %{
-            resource_short_name: Ash.Resource.Info.short_name(query.resource),
-            resource: query.resource,
-            actor: opts[:actor],
-            tenant: opts[:tenant],
-            action: action.name,
-            authorize?: opts[:authorize?]
+        Ash.Tracer.telemetry_span [:ash, :query], fn ->
+          %{
+            resource_short_name: Ash.Resource.Info.short_name(query.resource)
           }
+        end do
+          metadata = fn ->
+            %{
+              resource_short_name: Ash.Resource.Info.short_name(query.resource),
+              resource: query.resource,
+              actor: opts[:actor],
+              tenant: opts[:tenant],
+              action: action.name,
+              authorize?: opts[:authorize?]
+            }
+          end
 
           Ash.Tracer.set_metadata(opts[:tracer], :query, metadata)
 
@@ -554,7 +572,7 @@ defmodule Ash.Query do
         end
       end
     else
-      add_error(query, :action, "No such action #{inspect(action_name)}")
+      raise_no_action(query.resource, action_name)
     end
   end
 
@@ -593,6 +611,27 @@ defmodule Ash.Query do
     else
       query
     end
+  end
+
+  defp raise_no_action(resource, action_name) do
+    available_actions =
+      resource
+      |> Ash.Resource.Info.actions()
+      |> Enum.filter(&(&1.type == :read))
+      |> Enum.map_join("\n", &"    - `#{inspect(&1.name)}")
+
+    raise ArgumentError,
+      message: """
+      No such read action on resource #{inspect(resource)}: #{String.slice(inspect(action_name), 0..50)}
+
+      Example Call:
+
+        Ash.Query.for_read(query_or_resource, :action_name, input, options)
+
+      Available read actions:
+
+      #{available_actions}
+      """
   end
 
   defp require_arguments(query, action) do
@@ -648,6 +687,9 @@ defmodule Ash.Query do
         has_argument?(action, name) ->
           set_argument(query, name, value)
 
+        :* in List.wrap(opts[:skip_unknown_inputs]) ->
+          query
+
         name in skip_unknown_inputs ->
           query
 
@@ -684,11 +726,13 @@ defmodule Ash.Query do
     |> Ash.Resource.Info.preparations()
     |> Enum.concat(action.preparations || [])
     |> Enum.reduce_while(query, fn %{preparation: {module, opts}}, query ->
-      Ash.Tracer.span :preparation, "prepare: #{inspect(module)}", tracer do
-        Ash.Tracer.telemetry_span [:ash, :preparation], %{
-          resource_short_name: Ash.Resource.Info.short_name(query.resource),
-          preparation: inspect(module)
-        } do
+      Ash.Tracer.span :preparation, fn -> "prepare: #{inspect(module)}" end, tracer do
+        Ash.Tracer.telemetry_span [:ash, :preparation], fn ->
+          %{
+            resource_short_name: Ash.Resource.Info.short_name(query.resource),
+            preparation: inspect(module)
+          }
+        end do
           Ash.Tracer.set_metadata(opts[:tracer], :preparation, metadata)
 
           case module.init(opts) do
@@ -832,43 +876,43 @@ defmodule Ash.Query do
   Use `ensure_selected/2` if you wish to make sure a field has been selected, without deselecting any other fields.
   """
   def select(query, fields, opts \\ []) do
-    query = new(query)
-    fields = List.wrap(fields)
+    fields =
+      case fields do
+        %MapSet{} = fields -> fields
+        fields -> MapSet.new(List.wrap(fields))
+      end
 
-    {fields, non_existent} =
-      Enum.split_with(fields, &Ash.Resource.Info.attribute(query.resource, &1))
+    query = new(query)
+    existing_fields = Ash.Resource.Info.attribute_names(query.resource)
+
+    valid_fields = MapSet.intersection(fields, existing_fields)
 
     query =
-      Enum.reduce(non_existent, query, fn field, query ->
-        Ash.Query.add_error(
-          query,
-          Ash.Error.Query.NoSuchAttribute.exception(resource: query.resource, attribute: field)
-        )
-      end)
-
-    always_select =
-      query.resource
-      |> Ash.Resource.Info.attributes()
-      |> Enum.filter(& &1.always_select?)
-      |> Enum.map(& &1.name)
-
-    if opts[:replace?] do
-      %{
+      if MapSet.size(valid_fields) != MapSet.size(fields) do
+        MapSet.difference(fields, existing_fields)
+        |> Enum.reduce(query, fn field, query ->
+          Ash.Query.add_error(
+            query,
+            Ash.Error.Query.NoSuchAttribute.exception(resource: query.resource, attribute: field)
+          )
+        end)
+      else
         query
-        | select:
-            Enum.uniq(fields ++ Ash.Resource.Info.primary_key(query.resource) ++ always_select)
-      }
-    else
-      %{
-        query
-        | select:
-            Enum.uniq(
-              fields ++
-                (query.select || []) ++
-                Ash.Resource.Info.primary_key(query.resource) ++ always_select
-            )
-      }
-    end
+      end
+
+    select =
+      valid_fields
+      |> MapSet.union(Ash.Resource.Info.always_selected_attribute_names(query.resource))
+      |> MapSet.union(MapSet.new(Ash.Resource.Info.primary_key(query.resource)))
+
+    new_select =
+      if opts[:replace?] do
+        select
+      else
+        MapSet.union(MapSet.new(query.select || []), select)
+      end
+
+    %{query | select: MapSet.to_list(new_select)}
   end
 
   @doc """
@@ -1014,12 +1058,11 @@ defmodule Ash.Query do
     if query.select do
       Ash.Query.select(query, List.wrap(fields))
     else
-      to_select =
-        query.resource
-        |> Ash.Resource.Info.attributes()
-        |> Enum.map(& &1.name)
+      default_attributes = Ash.Resource.Info.selected_by_default_attribute_names(query.resource)
 
-      Ash.Query.select(query, to_select)
+      query
+      |> Ash.Query.select(default_attributes)
+      |> Ash.Query.select(List.wrap(fields))
     end
   end
 
@@ -1056,14 +1099,13 @@ defmodule Ash.Query do
 
     select =
       if query.select do
-        query.select
+        query.select -- List.wrap(fields)
       else
-        query.resource
-        |> Ash.Resource.Info.attributes()
-        |> Enum.map(& &1.name)
+        MapSet.difference(
+          Ash.Resource.Info.selected_by_default_attribute_names(query.resource),
+          MapSet.new(List.wrap(fields))
+        )
       end
-
-    select = select -- List.wrap(fields)
 
     select(query, select, replace?: true)
   end
@@ -1071,7 +1113,12 @@ defmodule Ash.Query do
   def selecting?(query, field) do
     case query.select do
       nil ->
-        not is_nil(Ash.Resource.Info.attribute(query.resource, field))
+        query.resource
+        |> Ash.Resource.Info.attribute(field)
+        |> case do
+          %{select_by_default?: true} -> true
+          _ -> false
+        end
 
       select ->
         if field in select do
@@ -1220,7 +1267,8 @@ defmodule Ash.Query do
         context[:relationship_path],
         :error,
         context[:strict_loads?],
-        context[:reuse_values?]
+        context[:reuse_values?],
+        context[:authorize?]
       )
     else
       load(left, right)
@@ -1230,11 +1278,7 @@ defmodule Ash.Query do
   @doc """
   Loads relationships, calculations, or aggregates on the resource.
 
-  Currently, loading attributes has no effects, as all attributes are returned.
-  Before long, we will have the default list to load as the attributes, but if you say
-  `load(query, [:attribute1])`, that will be the only field filled in. This will let
-  data layers make more intelligent "select" statements as well.
-
+  By default, loading attributes has no effects, as all attributes are returned.
 
   ```elixir
   # Loading nested relationships
@@ -1243,6 +1287,35 @@ defmodule Ash.Query do
   # Loading relationships with a query
   Ash.Query.load(query, [comments: [author: author_query]])
   ```
+
+  By passing the `strict?: true` option, only specified attributes will be loaded when passing
+  a list of fields to fetch on a relationship, which allows for more optimized data-fetching.
+
+  The select statement of any queries inside the load statement will not be affected.
+
+  Example:
+  ```elixir
+  Ash.load(category, [:name, posts: [:title, :published_at]], strict?: true)
+  ```
+
+  Here, the only fields that will be loaded on the `posts` relationship are `title` and
+  `published_at`, in addition to any other fields that are required to be loaded, like the
+  primary and relevant foreign keys.
+  This entails that when using `strict?: true` and loading nested relationships, you will also
+  always have to specify all the attributes you want to load alongside the nested relationships.
+
+  Example:
+  ```elixir
+  Ash.load(post, [:title, :published_at, :other_needed_attribute, category: [:name]], strict?: true)
+  ```
+
+  If no fields are specified on a relationship when using `strict?: true`, all attributes will be
+  loaded by default.
+
+  Example:
+  ```elixir
+  Ash.load(category, [:name, :posts], strict?: true)
+  ```
   """
   @spec load(
           t() | Ash.Resource.t(),
@@ -1250,20 +1323,32 @@ defmodule Ash.Query do
           | Ash.Query.Calculation.t()
           | Ash.Query.Aggregate.t()
           | list(atom | Ash.Query.Calculation.t() | Ash.Query.Aggregate.t())
-          | list({atom | Ash.Query.Calculation.t() | Ash.Query.Aggregate.t(), term})
+          | list({atom | Ash.Query.Calculation.t() | Ash.Query.Aggregate.t(), term}),
+          Keyword.t()
         ) ::
           t()
 
-  def load(query, %Ash.Query{} = new) do
-    merge_load(query, new)
+  def load(query, load_statement, opts \\ [])
+
+  def load(query, %Ash.Query{} = new, _opts) do
+    query |> new() |> merge_load(new)
   end
 
-  def load(query, fields) when not is_list(fields) do
-    load(query, List.wrap(fields))
+  def load(query, fields, opts) when not is_list(fields) do
+    load(query, List.wrap(fields), opts)
   end
 
-  def load(query, fields) do
-    query = new(query)
+  def load(query, fields, opts) do
+    strict? = Keyword.get(opts, :strict?, false)
+
+    query =
+      if strict? do
+        query
+        |> new()
+        |> select([])
+      else
+        new(query)
+      end
 
     Enum.reduce(fields, query, fn
       %Ash.Query{} = new, query ->
@@ -1289,7 +1374,7 @@ defmodule Ash.Query do
       {field, rest}, query ->
         cond do
           rel = Ash.Resource.Info.relationship(query.resource, field) ->
-            nested_query = load(rel.destination, rest)
+            nested_query = load(rel.destination, rest, opts)
 
             load_relationship(query, [{field, nested_query}])
 
@@ -1344,38 +1429,26 @@ defmodule Ash.Query do
             {resource_calculation.name, resource_calculation.name}
         end
 
-      {module, opts} = resource_calculation.calculation
+      case Calculation.from_resource_calculation(query.resource, resource_calculation,
+             args: Map.new(args),
+             source_context: query.context
+           ) do
+        {:ok, calculation} ->
+          calculation =
+            select_and_load_calc(
+              resource_calculation,
+              %{calculation | load: load, name: name, calc_name: resource_calculation.name},
+              query
+            )
 
-      with {:ok, args} <- validate_calculation_arguments(resource_calculation, args),
-           {:ok, calculation} <-
-             Calculation.new(
-               name,
-               module,
-               opts,
-               resource_calculation.type,
-               resource_calculation.constraints,
-               arguments: args,
-               filterable?: resource_calculation.filterable?,
-               sortable?: resource_calculation.sortable?,
-               sensitive?: resource_calculation.sensitive?,
-               load: resource_calculation.load,
-               source_context: query.context
-             ) do
-        calculation =
-          select_and_load_calc(
-            resource_calculation,
-            %{calculation | load: load, calc_name: resource_calculation.name},
+          query = Map.update!(query, :calculations, &Map.put(&1, name, calculation))
+
+          if load_through do
+            load_through(query, :calculation, name, load_through)
+          else
             query
-          )
+          end
 
-        query = Map.update!(query, :calculations, &Map.put(&1, name, calculation))
-
-        if load_through do
-          load_through(query, :calculation, name, load_through)
-        else
-          query
-        end
-      else
         {:error, error} ->
           add_error(query, :load, error)
       end
@@ -1407,73 +1480,8 @@ defmodule Ash.Query do
       )
       |> Ash.Actions.Helpers.validate_calculation_load!(module)
       |> Enum.concat(resource_calculation_load)
-      |> reify_calculations(query)
 
     %{calculation | required_loads: loads}
-  end
-
-  @doc false
-  def reify_calculations(loads, query) do
-    loads
-    |> List.wrap()
-    |> Enum.map(fn
-      {load, {args, further}} ->
-        if resource_calculation = Ash.Resource.Info.calculation(query.resource, load) do
-          case resource_calc_to_calc(query, load, resource_calculation, args) do
-            {:error, _} ->
-              {load, {args, further}}
-
-            {:ok, calc} ->
-              {calc, further}
-          end
-        else
-          if relationship = Ash.Resource.Info.relationship(query.resource, load) do
-            related_query = new(relationship.destination)
-            {{load, reify_calculations(args, related_query)}, further}
-          else
-            {load, {args, further}}
-          end
-        end
-
-      {load, args} ->
-        if resource_calculation = Ash.Resource.Info.calculation(query.resource, load) do
-          case resource_calc_to_calc(query, load, resource_calculation, args) do
-            {:error, _} ->
-              {load, args}
-
-            {:ok, calc} ->
-              calc
-          end
-        else
-          if relationship = Ash.Resource.Info.relationship(query.resource, load) do
-            related_query = new(relationship.destination)
-            {load, reify_calculations(args, related_query)}
-          else
-            {load, args}
-          end
-        end
-
-      load ->
-        if resource_calculation = Ash.Resource.Info.calculation(query.resource, load) do
-          case resource_calc_to_calc(query, load, resource_calculation) do
-            {:error, _} ->
-              load
-
-            {:ok, calc} ->
-              calc
-          end
-        else
-          if relationship = Ash.Resource.Info.relationship(query.resource, load) do
-            {load, relationship.destination |> new() |> set_tenant(query.tenant)}
-          else
-            load
-          end
-        end
-    end)
-    |> case do
-      [%Ash.Query{} = query] -> query
-      other -> other
-    end
   end
 
   defp fetch_key(map, key) when is_map(map) do
@@ -1496,26 +1504,15 @@ defmodule Ash.Query do
         {:ok, key} -> {key, nil}
       end
 
-    with %{calculation: {module, opts}} <- resource_calculation,
-         {:ok, args} <- validate_calculation_arguments(resource_calculation, args),
-         {:ok, calculation} <-
-           Calculation.new(
-             name,
-             module,
-             opts,
-             resource_calculation.type,
-             resource_calculation.constraints,
-             arguments: args,
-             filterable?: resource_calculation.filterable?,
-             sortable?: resource_calculation.sortable?,
-             sensitive?: resource_calculation.sensitive?,
-             load: resource_calculation.load,
-             source_context: query.context
+    with {:ok, calculation} <-
+           Ash.Query.Calculation.from_resource_calculation!(query.resource, resource_calculation,
+             source_context: query.context,
+             args: Map.new(args)
            ) do
       {:ok,
        select_and_load_calc(
          resource_calculation,
-         %{calculation | load: load, calc_name: resource_calculation.name},
+         %{calculation | load: load, name: name},
          query
        )}
     end
@@ -1564,6 +1561,7 @@ defmodule Ash.Query do
                  query.resource,
                  aggregate.name,
                  aggregate.kind,
+                 agg_name: aggregate.name,
                  path: aggregate.relationship_path,
                  query: [filter: aggregate.filter, sort: aggregate.sort],
                  field: aggregate.field,
@@ -1572,6 +1570,7 @@ defmodule Ash.Query do
                  type: aggregate.type,
                  constraints: aggregate.constraints,
                  implementation: aggregate.implementation,
+                 include_nil?: aggregate.include_nil?,
                  uniq?: aggregate.uniq?,
                  read_action: aggregate.read_action,
                  authorize?: aggregate.authorize?,
@@ -1584,15 +1583,6 @@ defmodule Ash.Query do
 
           %{query | aggregates: new_aggregates}
         else
-          %{errors: errors} ->
-            add_error(
-              query,
-              :aggregates,
-              Ash.Error.to_ash_error(errors, nil,
-                bread_crumbs: "Loading aggregate: #{inspect(field)} for query: #{inspect(query)}"
-              )
-            )
-
           {:error, error} ->
             add_error(
               query,
@@ -1829,18 +1819,18 @@ defmodule Ash.Query do
   Set the result of the action. This will prevent running the underlying datalayer behavior
   """
   @spec set_result(t(), term) :: t()
-  def set_result(changeset, result) do
-    set_context(changeset, %{private: %{action_result: result}})
+  def set_result(query, result) do
+    set_context(query, %{private: %{action_result: result}})
   end
 
   @doc """
   Removes a result set previously with `set_result/2`
   """
   @spec clear_result(t()) :: t()
-  def clear_result(changeset) do
+  def clear_result(query) do
     %{
-      changeset
-      | context: Map.update(changeset.context, :private, %{}, &Map.delete(&1, :action_result))
+      query
+      | context: Map.update(query.context, :private, %{}, &Map.delete(&1, :action_result))
     }
   end
 
@@ -2040,6 +2030,23 @@ defmodule Ash.Query do
           end)
 
         %{query | aggregates: new_aggregates}
+
+      Ash.Resource.Info.calculation(query.resource, field) ->
+        new_calculations =
+          Enum.reduce(query.calculations, %{}, fn
+            {_field, %{load: ^field}}, acc ->
+              acc
+
+            {field, calculation}, acc ->
+              Map.put(acc, field, calculation)
+          end)
+
+        %{query | calculations: new_calculations}
+
+      true ->
+        query
+        |> Map.update!(:calculations, &Map.delete(&1, field))
+        |> Map.update!(:aggregates, &Map.delete(&1, field))
     end
   end
 
@@ -2160,7 +2167,8 @@ defmodule Ash.Query do
 
   #{Spark.Options.docs(@build_opts)}
   """
-  @spec build(Ash.Resource.t(), Ash.Domain.t() | nil, Keyword.t()) :: t()
+  @spec build(Ash.Resource.t() | t(), Ash.Domain.t() | nil, Keyword.t()) :: t()
+  @spec build(Ash.Resource.t() | t(), Keyword.t()) :: t()
   def build(resource, domain \\ nil, keyword) do
     query =
       resource
@@ -2268,6 +2276,7 @@ defmodule Ash.Query do
     type = opts[:type]
     constraints = opts[:constraints] || []
     implementation = opts[:implementation]
+    include_nil? = Keyword.get(opts, :include_nil?, true)
     uniq? = opts[:uniq?]
     read_action = opts[:read_action]
     authorize? = Keyword.get(opts, :authorize?, true)
@@ -2302,7 +2311,7 @@ defmodule Ash.Query do
 
             related
             |> for_read(read_action)
-            |> Ash.Query.Aggregate.build_query(options)
+            |> Ash.Query.Aggregate.build_query(query.resource, options)
 
           %Ash.Query{} = query ->
             query
@@ -2319,6 +2328,7 @@ defmodule Ash.Query do
              filterable?: filterable?,
              sortable?: sortable?,
              sensitive?: sensitive?,
+             include_nil?: include_nil?,
              type: type,
              constraints: constraints,
              implementation: implementation,
@@ -2359,7 +2369,8 @@ defmodule Ash.Query do
         module_and_opts,
         arguments \\ %{},
         constraints \\ [],
-        extra_context \\ %{}
+        extra_context \\ %{},
+        new_calculation_opts \\ []
       ) do
     query = new(query)
 
@@ -2381,8 +2392,10 @@ defmodule Ash.Query do
            opts,
            type,
            constraints,
-           arguments: arguments,
-           source_context: query.context
+           Keyword.merge(
+             [arguments: arguments, source_context: query.context],
+             new_calculation_opts
+           )
          ) do
       {:ok, calculation} ->
         context = %{
@@ -2403,7 +2416,6 @@ defmodule Ash.Query do
           )
           |> Ash.Actions.Helpers.validate_calculation_load!(module)
           |> Enum.concat(List.wrap(calculation.required_loads))
-          |> reify_calculations(query)
 
         calculation = %{calculation | required_loads: loads}
         %{query | calculations: Map.put(query.calculations, name, calculation)}
@@ -2574,13 +2586,15 @@ defmodule Ash.Query do
     query = new(query)
 
     if Ash.DataLayer.data_layer_can?(query.resource, :filter) do
+      context = %{} |> with_parent_stack(opts) |> with_conflicting_upsert_values(opts)
+
       new_filter =
         case query.filter do
           nil ->
             Ash.Filter.parse(
               query.resource,
               filter,
-              with_parent_stack(%{}, opts)
+              context
             )
 
           existing_filter ->
@@ -2590,7 +2604,7 @@ defmodule Ash.Query do
               :and,
               query.aggregates,
               query.calculations,
-              with_parent_stack(%{}, opts)
+              context
             )
         end
 
@@ -2603,6 +2617,7 @@ defmodule Ash.Query do
                    public?: false
                  }
                  |> with_parent_stack(opts)
+                 |> with_conflicting_upsert_values(opts)
                ) do
             {:ok, result} ->
               %{query | filter: result}
@@ -2626,6 +2641,11 @@ defmodule Ash.Query do
     query = new(query)
 
     if Ash.DataLayer.data_layer_can?(query.resource, :filter) do
+      context =
+        %{}
+        |> with_parent_stack(opts)
+        |> with_conflicting_upsert_values(opts)
+
       filter =
         if query.filter do
           Ash.Filter.add_to_filter(
@@ -2634,13 +2654,13 @@ defmodule Ash.Query do
             :and,
             query.aggregates,
             query.calculations,
-            with_parent_stack(%{}, opts)
+            context
           )
         else
           Ash.Filter.parse(
             query.resource,
             statement,
-            with_parent_stack(%{}, opts)
+            context
           )
         end
 
@@ -2653,6 +2673,7 @@ defmodule Ash.Query do
                    public?: false
                  }
                  |> with_parent_stack(opts)
+                 |> with_conflicting_upsert_values(opts)
                ) do
             {:ok, result} ->
               %{query | filter: result}
@@ -2676,6 +2697,16 @@ defmodule Ash.Query do
       Map.update(context, :parent_stack, parent_stack, &(parent_stack ++ &1))
     else
       context
+    end
+  end
+
+  defp with_conflicting_upsert_values(context, opts) do
+    case Keyword.fetch(opts, :conflicting_upsert_values) do
+      {:ok, values} ->
+        Map.put(context, :conflicting_upsert_values, values)
+
+      :error ->
+        context
     end
   end
 
@@ -2844,17 +2875,22 @@ defmodule Ash.Query do
   def apply_to(query, records, opts \\ []) do
     domain =
       query.domain || Ash.Resource.Info.domain(query.resource) || opts[:domain] ||
+        Ash.Actions.Helpers.maybe_embedded_domain(query.resource) ||
         raise ArgumentError,
               "Could not determine domain for #{inspect(query)}, please provide the `:domain` option."
 
     with {:ok, records} <-
-           Ash.Filter.Runtime.filter_matches(domain, records, query.filter, parent: opts[:parent]),
+           Ash.Filter.Runtime.filter_matches(domain, records, query.filter,
+             parent: opts[:parent],
+             actor: opts[:actor] || query.context[:private][:actor],
+             tenant: opts[:tenant] || query.tenant
+           ),
          records <- Sort.runtime_sort(records, query.distinct_sort || query.sort, domain: domain),
          records <- Sort.runtime_distinct(records, query.distinct, domain: domain),
          records <- Sort.runtime_sort(records, query.sort, domain: domain),
          records <- Enum.drop(records, query.offset),
          records <- do_limit(records, query.limit),
-         {:ok, records} <- Ash.load(records, query, domain: domain) do
+         {:ok, records} <- Ash.load(records, query, domain: domain, reuse_values?: true) do
       {:ok, records}
     else
       {:error, error} ->
@@ -2914,11 +2950,17 @@ defmodule Ash.Query do
   def data_layer_query(%{resource: resource, domain: domain} = ash_query, opts) do
     query = opts[:initial_query] || Ash.DataLayer.resource_to_query(resource, domain)
 
+    context =
+      ash_query.context
+      |> Map.put(:action, ash_query.action)
+      |> Map.put_new(:private, %{})
+      |> put_in([:private, :tenant], ash_query.tenant)
+
     with {:ok, query} <-
            Ash.DataLayer.set_context(
              resource,
              query,
-             Map.put(ash_query.context, :action, ash_query.action)
+             context
            ),
          {:ok, query} <- add_tenant(query, ash_query),
          {:ok, query} <- Ash.DataLayer.select(query, ash_query.select, ash_query.resource),
@@ -3085,6 +3127,8 @@ defmodule Ash.Query do
     end)
   end
 
+  defp merge_load([], %Ash.Query{} = right), do: right
+  defp merge_load(%Ash.Query{} = left, []), do: left
   defp merge_load([], right), do: sanitize_loads(right)
   defp merge_load(left, []), do: sanitize_loads(left)
 

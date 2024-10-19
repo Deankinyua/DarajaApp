@@ -2,7 +2,7 @@ defmodule Ash.Actions.Read do
   @moduledoc false
 
   alias Ash.Actions.Helpers
-  alias Ash.Error.Invalid.{LimitRequired, PaginationRequired}
+  alias Ash.Error.Invalid.{LimitRequired, NonCountableAction, PaginationRequired}
   alias Ash.Filter
 
   require Logger
@@ -30,7 +30,10 @@ defmodule Ash.Actions.Read do
   end
 
   def run(query, action, opts) do
-    query = Ash.Query.new(query)
+    query =
+      query
+      |> Ash.Query.new()
+      |> clear_async_limiter()
 
     domain = query.domain || opts[:domain] || Ash.Resource.Info.domain(query.resource)
 
@@ -45,22 +48,34 @@ defmodule Ash.Actions.Read do
 
     action = get_action(query.resource, action || query.action)
 
+    tracer =
+      if opts[:initial_data] do
+        nil
+      else
+        opts[:tracer]
+      end
+
     Ash.Tracer.span :action,
-                    Ash.Domain.Info.span_name(query.domain, query.resource, action.name),
-                    opts[:tracer] do
-      metadata = %{
-        domain: query.domain,
-        resource: query.resource,
-        resource_short_name: Ash.Resource.Info.short_name(query.resource),
-        actor: opts[:actor],
-        tenant: opts[:tenant],
-        action: action.name,
-        authorize?: opts[:authorize?]
-      }
+                    fn ->
+                      Ash.Domain.Info.span_name(query.domain, query.resource, action.name)
+                    end,
+                    tracer do
+      metadata = fn ->
+        %{
+          domain: query.domain,
+          resource: query.resource,
+          resource_short_name: Ash.Resource.Info.short_name(query.resource),
+          actor: opts[:actor],
+          tenant: opts[:tenant],
+          action: action.name,
+          authorize?: opts[:authorize?]
+        }
+      end
 
       Ash.Tracer.telemetry_span [:ash, Ash.Domain.Info.short_name(query.domain), :read],
-                                metadata do
-        Ash.Tracer.set_metadata(opts[:tracer], :action, metadata)
+                                metadata,
+                                skip?: !!opts[:initial_data] do
+        Ash.Tracer.set_metadata(tracer, :action, metadata)
 
         run_around_transaction_hooks(query, fn query ->
           case do_run(query, action, opts) do
@@ -178,6 +193,8 @@ defmodule Ash.Actions.Read do
 
     query = load_and_select_sort(query)
 
+    query = add_relationship_count_aggregates(query)
+
     pkey = Ash.Resource.Info.primary_key(query.resource)
 
     missing_pkeys? =
@@ -194,7 +211,8 @@ defmodule Ash.Actions.Read do
         query,
         missing_pkeys?,
         Keyword.fetch(opts, :initial_data),
-        reuse_values?
+        reuse_values?,
+        opts[:authorize?]
       )
 
     query =
@@ -206,6 +224,11 @@ defmodule Ash.Actions.Read do
         opts[:tracer],
         query.domain
       )
+
+    source_fields =
+      if !opts[:initial_data] do
+        source_fields(query)
+      end
 
     query =
       if opts[:initial_data] do
@@ -226,7 +249,7 @@ defmodule Ash.Actions.Read do
           query
         end
       else
-        Ash.Query.ensure_selected(query, source_fields(query))
+        Ash.Query.ensure_selected(query, source_fields)
       end
 
     {query, stop?} = add_async_limiter(query, calculations_at_runtime, opts)
@@ -243,33 +266,36 @@ defmodule Ash.Actions.Read do
             opts
           )
         else
-          do_read(query, calculations_at_runtime, calculations_in_query, opts)
+          do_read(query, calculations_at_runtime, calculations_in_query, source_fields, opts)
         end
 
-      data_result =
+      {data_result, query_ran} =
         case data_result do
-          {:ok, result} -> {:ok, result, nil}
-          {:ok, result, count} -> {:ok, result, count}
-          other -> other
+          {:ok, _result, _count, _calculations_at_runtime, _calculations_in_query, query} =
+              data_result ->
+            {data_result, query}
+
+          {{:error, _} = data_result, query} ->
+            {data_result, query}
+
+          data_result ->
+            {data_result, query}
         end
 
-      with {:ok, data, count} <- data_result,
+      with {:ok, data, count, calculations_at_runtime, calculations_in_query, _query} <-
+             data_result,
            data = add_tenant(data, query),
            {:ok, data} <-
              load_through_attributes(
                data,
-               %{query | calculations: Map.new(calculations_in_query, &{&1.name, &1})},
+               %{query_ran | calculations: Map.new(calculations_in_query, &{&1.name, &1})},
                query.domain,
                opts[:actor],
                opts[:tracer],
                opts[:authorize?]
              ),
            {:ok, data} <-
-             Ash.Actions.Read.Relationships.load(
-               data,
-               query,
-               opts[:lazy?]
-             ),
+             load_relationships(data, query, opts),
            {:ok, data} <-
              Ash.Actions.Read.Calculations.run(
                data,
@@ -294,7 +320,7 @@ defmodule Ash.Actions.Read do
         query =
           query
           # prevent leakage of stale pid as we stop it at the end of reading
-          |> clearup_async_limiter()
+          |> clear_async_limiter()
 
         data
         |> Helpers.restrict_field_access(query)
@@ -313,6 +339,19 @@ defmodule Ash.Actions.Read do
         {:error, %Ash.Query{errors: errors} = query} ->
           {:error, Ash.Error.to_error_class(errors, query: query)}
 
+        {:error,
+         %Ash.Error.Forbidden.Placeholder{
+           authorizer: authorizer
+         }} ->
+          error =
+            Ash.Authorizer.exception(
+              authorizer,
+              :forbidden,
+              query_ran.context[:private][:authorizer_state][authorizer]
+            )
+
+          {:error, Ash.Error.to_error_class(error)}
+
         {:error, error} ->
           {:error, Ash.Error.to_error_class(error, query: query)}
       end
@@ -323,164 +362,230 @@ defmodule Ash.Actions.Read do
     end
   end
 
-  defp do_read(%{action: action} = query, calculations_at_runtime, calculations_in_query, opts) do
-    maybe_in_transaction(query, opts, fn ->
-      with {:ok, %{valid?: true} = query} <- handle_multitenancy(query),
-           query <- add_select_if_none_exists(query),
-           query <- %{
-             query
-             | filter:
-                 add_calc_context_to_filter(
-                   query.filter,
-                   opts[:actor],
-                   opts[:authorize?],
-                   query.tenant,
-                   opts[:tracer],
-                   query.domain
-                 )
-           },
-           pre_authorization_query <- query,
-           {:ok, query} <- authorize_query(query, opts),
-           query_before_pagination <- query,
-           query <-
-             Ash.Actions.Read.Calculations.deselect_known_forbidden_fields(
-               query,
-               calculations_at_runtime ++ calculations_in_query
-             ),
-           {:ok, data_layer_calculations} <- hydrate_calculations(query, calculations_in_query),
-           {:ok, query} <-
-             hydrate_sort(
-               query,
-               opts[:actor],
-               opts[:authorize?],
-               query.tenant,
-               opts[:tracer],
-               query.domain
-             ),
-           {:ok, relationship_path_filters} <-
-             Ash.Filter.relationship_filters(
-               query.domain,
-               pre_authorization_query,
-               opts[:actor],
-               query.tenant,
-               agg_refs(query, data_layer_calculations ++ [{nil, query.filter}]),
-               opts[:authorize?]
-             ),
-           data_layer_calculations <-
-             authorize_calculation_expressions(
-               data_layer_calculations,
-               query.resource,
-               opts[:authorize?],
-               relationship_path_filters,
-               opts[:actor],
-               query.tenant,
-               opts[:tracer],
-               query.domain
-             ),
-           query <-
-             authorize_loaded_aggregates(
-               query,
-               relationship_path_filters,
-               opts[:actor],
-               opts[:authorize?],
-               query.tenant,
-               opts[:tracer]
-             ),
-           query <-
-             authorize_sorts(
-               query,
-               relationship_path_filters,
-               opts[:actor],
-               opts[:authorize?],
-               query.tenant,
-               opts[:tracer]
-             ),
-           {:ok, filter} <-
-             filter_with_related(
-               query,
-               opts[:authorize?],
-               relationship_path_filters
-             ),
-           {:ok, filter} <-
-             Filter.run_other_data_layer_filters(
-               query.domain,
-               query.resource,
-               filter,
-               query.tenant
-             ),
-           filter <-
-             add_calc_context_to_filter(
-               filter,
-               opts[:actor],
-               opts[:authorize?],
-               query.tenant,
-               opts[:tracer],
-               query.domain
-             ),
-           filter <-
-             update_aggregate_filters(
-               filter,
-               query.resource,
-               opts[:authorize?],
-               relationship_path_filters,
-               opts[:actor],
-               query.tenant,
-               opts[:tracer],
-               query.domain
-             ),
-           query <- Map.put(query, :filter, filter),
-           query <- Ash.Query.unset(query, :calculations),
-           query <- add_relationship_count_aggregates(query),
-           {%{valid?: true} = query, before_notifications} <- run_before_action(query),
-           {:ok, count} <-
-             fetch_count(
-               query,
-               query_before_pagination,
-               relationship_path_filters,
-               opts
-             ),
-           {:ok, query} <- paginate(query, action, opts[:skip_pagination?]),
-           {:ok, data_layer_query} <-
-             Ash.Query.data_layer_query(query, data_layer_calculations: data_layer_calculations),
-           {:ok, results} <-
-             run_query(
-               set_phase(query, :executing),
-               data_layer_query,
-               %{
-                 actor: opts[:actor],
-                 tenant: query.tenant,
-                 authorize?: opts[:authorize?],
-                 domain: query.domain
-               },
-               !Keyword.has_key?(opts, :initial_data)
-             )
-             |> Helpers.rollback_if_in_transaction(
-               query.resource,
-               query
-             ),
-           :ok <- validate_get(results, query.action, query),
-           results <- add_keysets(query, results, query.sort),
-           {:ok, results} <- run_authorize_results(query, results),
-           {:ok, results, after_notifications} <- run_after_action(query, results),
-           {:ok, count} <- maybe_await(count) do
-        {:ok, results, count, before_notifications ++ after_notifications}
-      else
-        {%{valid?: false} = query, before_notifications} ->
-          {:error, query, before_notifications}
+  defp load_relationships(data, query, opts) do
+    lazy? = !!opts[:lazy?]
+    reuse_values? = !!opts[:reuse_values?]
 
-        {:error, %Ash.Query{} = query} ->
-          {:error, query}
+    context =
+      %{
+        actor: opts[:actor],
+        tenant: query.tenant,
+        authorize?: opts[:authorize?],
+        domain: query.domain
+      }
 
-        {:ok, %Ash.Query{valid?: false} = query} ->
-          {:error, query}
+    if query.load in [[], nil] do
+      {:ok, data}
+    else
+      case query.action.manual do
+        {module, opts} ->
+          if module.has_load_relationships?() do
+            module.load_relationships(query, data, opts, context, lazy?)
+          else
+            Ash.Actions.Read.Relationships.load(
+              data,
+              query,
+              lazy?,
+              reuse_values?
+            )
+          end
 
-        %Ash.Query{} = query ->
-          {:error, query}
-
-        {:error, error} ->
-          {:error, error}
+        _ ->
+          Ash.Actions.Read.Relationships.load(
+            data,
+            query,
+            lazy?,
+            reuse_values?
+          )
       end
-    end)
+    end
+  end
+
+  defp do_read(
+         %{action: action} = query,
+         calculations_at_runtime,
+         calculations_in_query,
+         source_fields,
+         opts
+       ) do
+    with {:ok, %{valid?: true} = query} <- handle_multitenancy(query),
+         query <- add_select_if_none_exists(query),
+         query <- %{
+           query
+           | filter:
+               add_calc_context_to_filter(
+                 query.filter,
+                 opts[:actor],
+                 opts[:authorize?],
+                 query.tenant,
+                 opts[:tracer],
+                 query.domain
+               ),
+             sort:
+               add_calc_context_to_sort(
+                 query,
+                 opts[:actor],
+                 opts[:authorize?],
+                 query.tenant,
+                 opts[:tracer],
+                 query.resource,
+                 query.domain
+               )
+         },
+         pre_authorization_query <- query,
+         {:ok, query} <- authorize_query(query, opts) do
+      maybe_in_transaction(query, opts, fn notify_callback ->
+        with query_before_pagination <- query,
+             {query, calculations_at_runtime, calculations_in_query} <-
+               Ash.Actions.Read.Calculations.deselect_known_forbidden_fields(
+                 query,
+                 calculations_at_runtime,
+                 calculations_in_query,
+                 source_fields
+               ),
+             {:ok, data_layer_calculations} <- hydrate_calculations(query, calculations_in_query),
+             {:ok, query} <- hydrate_aggregates(query),
+             {:ok, query} <-
+               hydrate_sort(
+                 query,
+                 opts[:actor],
+                 opts[:authorize?],
+                 query.tenant,
+                 opts[:tracer],
+                 query.domain
+               ),
+             {:ok, relationship_path_filters} <-
+               Ash.Filter.relationship_filters(
+                 query.domain,
+                 pre_authorization_query,
+                 opts[:actor],
+                 query.tenant,
+                 agg_refs(query, data_layer_calculations ++ [{nil, query.filter}]),
+                 opts[:authorize?]
+               ),
+             data_layer_calculations <-
+               authorize_calculation_expressions(
+                 data_layer_calculations,
+                 query.resource,
+                 opts[:authorize?],
+                 relationship_path_filters,
+                 opts[:actor],
+                 query.tenant,
+                 opts[:tracer],
+                 query.domain
+               ),
+             query <-
+               authorize_loaded_aggregates(
+                 query,
+                 relationship_path_filters,
+                 opts[:actor],
+                 opts[:authorize?],
+                 query.tenant,
+                 opts[:tracer]
+               ),
+             query <-
+               authorize_sorts(
+                 query,
+                 relationship_path_filters,
+                 opts[:actor],
+                 opts[:authorize?],
+                 query.tenant,
+                 opts[:tracer]
+               ),
+             {:ok, filter} <-
+               filter_with_related(
+                 query,
+                 opts[:authorize?],
+                 relationship_path_filters
+               ),
+             {:ok, filter} <-
+               Filter.run_other_data_layer_filters(
+                 query.domain,
+                 query.resource,
+                 filter,
+                 query.tenant
+               ),
+             filter <-
+               add_calc_context_to_filter(
+                 filter,
+                 opts[:actor],
+                 opts[:authorize?],
+                 query.tenant,
+                 opts[:tracer],
+                 query.domain
+               ),
+             filter <-
+               update_aggregate_filters(
+                 filter,
+                 query.resource,
+                 opts[:authorize?],
+                 relationship_path_filters,
+                 opts[:actor],
+                 query.tenant,
+                 opts[:tracer],
+                 query.domain
+               ),
+             query <- Map.put(query, :filter, filter),
+             query <- Ash.Query.unset(query, :calculations),
+             {%{valid?: true} = query, before_notifications} <- run_before_action(query),
+             {:ok, count} <-
+               fetch_count(
+                 query,
+                 query_before_pagination,
+                 relationship_path_filters,
+                 opts
+               ),
+             {:ok, query} <- paginate(query, action, opts[:skip_pagination?]),
+             {:ok, data_layer_query} <-
+               Ash.Query.data_layer_query(query, data_layer_calculations: data_layer_calculations),
+             {:ok, results} <-
+               run_query(
+                 set_phase(query, :executing),
+                 data_layer_query,
+                 %{
+                   actor: opts[:actor],
+                   tenant: query.tenant,
+                   authorize?: opts[:authorize?],
+                   domain: query.domain
+                 },
+                 !Keyword.has_key?(opts, :initial_data)
+               )
+               |> Helpers.rollback_if_in_transaction(
+                 query.resource,
+                 query
+               ),
+             :ok <- validate_get(results, query.action, query),
+             results <- add_keysets(query, results, query.sort),
+             {:ok, results} <- run_authorize_results(query, results),
+             {:ok, results, after_notifications} <- run_after_action(query, results),
+             {:ok, count} <- maybe_await(count) do
+          notify_callback.(query, before_notifications ++ after_notifications)
+          {:ok, results, count, calculations_at_runtime, calculations_in_query, query}
+        else
+          {%{valid?: false} = query, before_notifications} ->
+            notify_callback.(query, before_notifications)
+            {{:error, query}, query}
+
+          {{:error, %Ash.Query{} = query}, query} ->
+            {:error, query}
+
+          {:ok, %Ash.Query{valid?: false} = query} ->
+            {{:error, query}, query}
+
+          %Ash.Query{} = query ->
+            {{:error, query}, query}
+
+          {:error, error} ->
+            {{:error, error}, query}
+        end
+      end)
+    else
+      {:ok, query} ->
+        {{:error, query}, query}
+
+      {:error, error} ->
+        {{:error, error}, query}
+    end
   end
 
   defp add_relationship_count_aggregates(query) do
@@ -644,16 +749,20 @@ defmodule Ash.Actions.Read do
                   record
 
                 record ->
-                  Map.update!(record, :calculations, fn calculations ->
-                    Map.update!(calculations, name, fn value ->
-                      Ash.Type.rewrite(
-                        type,
-                        value,
-                        [{:cleanup_field_auth, further_load}],
-                        constraints
-                      )
+                  if Map.has_key?(record.calculations, name) do
+                    Map.update!(record, :calculations, fn calculations ->
+                      Map.update!(calculations, name, fn value ->
+                        Ash.Type.rewrite(
+                          type,
+                          value,
+                          [{:cleanup_field_auth, further_load}],
+                          constraints
+                        )
+                      end)
                     end)
-                  end)
+                  else
+                    record
+                  end
               end
 
             nil ->
@@ -674,52 +783,47 @@ defmodule Ash.Actions.Read do
   defp agg_refs(query, calculations_in_query) do
     calculations_in_query
     |> Enum.flat_map(fn {_, expr} ->
-      Ash.Filter.used_aggregates(expr, :*)
+      expr
+      |> Ash.Filter.used_aggregates(:*, true)
+      |> Enum.map(fn %Ash.Query.Ref{attribute: aggregate, relationship_path: relationship_path} ->
+        %{
+          aggregate
+          | resource: query.resource,
+            relationship_path: relationship_path ++ aggregate.relationship_path
+        }
+      end)
     end)
     |> Enum.concat(Map.values(query.aggregates))
   end
 
   defp source_fields(query, lazy_for_initial_data \\ nil) do
-    query
-    |> Ash.Query.accessing([:relationships], false)
-    |> then(fn relationships ->
-      if lazy_for_initial_data do
-        Enum.reject(relationships, fn relationship ->
-          Ash.Resource.loaded?(lazy_for_initial_data, relationship, lists: :any)
-        end)
+    Enum.flat_map(query.load, fn {name, _} ->
+      if lazy_for_initial_data && Ash.Resource.loaded?(lazy_for_initial_data, name, lists: :any) do
+        []
       else
-        relationships
-      end
-    end)
-    |> Enum.flat_map(fn name ->
-      case Ash.Resource.Info.relationship(query.resource, name) do
-        %{no_attributes?: true} ->
-          []
+        case Ash.Resource.Info.relationship(query.resource, name) do
+          %{no_attributes?: true} ->
+            []
 
-        %{manual: {module, opts}, source_attribute: source_attribute} ->
-          fields =
-            module.select(opts)
+          %{manual: {module, opts}, source_attribute: source_attribute} ->
+            fields =
+              module.select(opts)
 
-          if Ash.Resource.Info.attribute(query.resource, source_attribute) do
             [source_attribute | fields]
-          else
-            fields
-          end
 
-        %{source_attribute: source_attribute} ->
-          [source_attribute]
+          %{source_attribute: source_attribute} ->
+            [source_attribute]
+        end
       end
     end)
   end
 
-  defp clearup_async_limiter(
-         %{context: %{private: %{async_limiter: async_limiter}} = ctx} = query
-       )
+  defp clear_async_limiter(%{context: %{private: %{async_limiter: async_limiter}} = ctx} = query)
        when is_pid(async_limiter) do
     Ash.Query.set_context(query, put_in(ctx[:private][:async_limiter], nil))
   end
 
-  defp clearup_async_limiter(query), do: query
+  defp clear_async_limiter(query), do: query
 
   def add_async_limiter(
         %{context: %{private: %{async_limiter: async_limiter}}} = query,
@@ -758,7 +862,9 @@ defmodule Ash.Actions.Read do
         query.action.transaction? ->
           Ash.DataLayer.transaction(
             [query.resource | query.action.touches_resources],
-            func,
+            fn ->
+              func.(&notify_or_store(&1, &2, notify?))
+            end,
             query.timeout,
             %{
               type: :read,
@@ -770,40 +876,29 @@ defmodule Ash.Actions.Read do
               data_layer_context: query.context[:data_layer]
             }
           )
+          |> case do
+            {:error, {:error, error}} -> {:error, error}
+            {:error, error} -> {:error, error}
+            {:ok, result} -> result
+          end
 
         query.timeout ->
-          {:ok,
-           Ash.ProcessHelpers.task_with_timeout(
-             func,
-             query.resource,
-             query.timeout,
-             "#{inspect(query.resource)}.#{query.action.name}",
-             opts[:tracer]
-           )}
+          Ash.ProcessHelpers.task_with_timeout(
+            fn ->
+              func.(&notify_or_store(&1, &2, notify?))
+            end,
+            query.resource,
+            query.timeout,
+            "#{inspect(query.resource)}.#{query.action.name}",
+            opts[:tracer]
+          )
 
         true ->
-          {:ok, func.()}
-      end
-      |> case do
-        {:ok, {:ok, result, count, notifications}} ->
-          notify_or_store(query, notifications, notify?)
-
-          {:ok, result, count}
-
-        {:ok, {:error, error, notifications}} ->
-          notify_or_store(query, notifications, notify?)
-
-          {:error, error}
-
-        {:ok, value} ->
-          value
-
-        other ->
-          other
+          func.(&notify_or_store(&1, &2, notify?))
       end
     after
       if notify? do
-        Process.put(:ash_started_transaction?, false)
+        Process.delete(:ash_started_transaction?)
       end
     end
   end
@@ -828,41 +923,52 @@ defmodule Ash.Actions.Read do
     if query.select do
       query
     else
-      to_select =
-        query.resource
-        |> Ash.Resource.Info.attributes()
-        |> Enum.map(& &1.name)
-
-      Ash.Query.select(query, to_select)
+      Ash.Query.select(
+        query,
+        Ash.Resource.Info.selected_by_default_attribute_names(query.resource)
+      )
     end
   end
 
   defp load(
-         initial_data,
+         [first | _] = initial_data,
          query,
          calculations_at_runtime,
          calculations_in_query,
          missing_pkeys?,
          opts
        ) do
-    must_be_reselected = List.wrap(query.select) -- Ash.Resource.Info.primary_key(query.resource)
+    must_be_reselected =
+      query.select
+      |> List.wrap()
+      |> Kernel.--(Ash.Resource.Info.primary_key(query.resource))
 
-    query =
+    must_be_reselected =
+      if opts[:reuse_values?] do
+        must_be_reselected
+        |> Enum.reject(&Ash.Resource.selected?(first, &1))
+      else
+        must_be_reselected
+      end
+
+    {query, calculations_at_runtime, calculations_in_query} =
       Ash.Actions.Read.Calculations.deselect_known_forbidden_fields(
         query,
-        calculations_at_runtime ++ calculations_in_query
+        calculations_at_runtime,
+        calculations_in_query
       )
 
     if missing_pkeys? ||
          (Enum.empty?(must_be_reselected) && Enum.empty?(query.aggregates) &&
             Enum.empty?(calculations_in_query)) do
-      {:ok, initial_data}
+      {:ok, initial_data, 0, calculations_at_runtime, calculations_in_query, query}
     else
       reselect_and_load(
         initial_data,
         query,
         must_be_reselected,
         calculations_in_query,
+        calculations_at_runtime,
         opts
       )
     end
@@ -873,6 +979,7 @@ defmodule Ash.Actions.Read do
          query,
          must_be_reselected,
          calculations_in_query,
+         calculations_at_runtime,
          opts
        ) do
     primary_key = Ash.Resource.Info.primary_key(query.resource)
@@ -912,6 +1019,7 @@ defmodule Ash.Actions.Read do
              query,
              calculations_in_query
            ),
+         {:ok, query} <- hydrate_aggregates(query),
          {:ok, relationship_path_filters} <-
            Ash.Filter.relationship_filters(
              query.domain,
@@ -961,7 +1069,7 @@ defmodule Ash.Actions.Read do
              %{
                actor: opts[:actor],
                tenant: query.tenant,
-               authorize?: false,
+               authorize?: opts[:authorize?],
                domain: query.domain
              },
              true
@@ -972,7 +1080,7 @@ defmodule Ash.Actions.Read do
       |> compute_expression_at_runtime_for_missing_records(query, data_layer_calculations)
       |> case do
         {:ok, result} ->
-          {:ok, result, 0}
+          {:ok, result, 0, calculations_at_runtime, calculations_in_query, query}
 
         {:error, error} ->
           {:error, error}
@@ -1001,18 +1109,8 @@ defmodule Ash.Actions.Read do
     end)
     |> Enum.reduce_while({:ok, []}, fn
       {%Ash.Resource.Calculation{} = resource_calculation, direction}, {:ok, sort} ->
-        {module, opts} = resource_calculation.calculation
-
-        case Ash.Query.Calculation.new(
-               resource_calculation.name,
-               module,
-               opts,
-               resource_calculation.type,
-               resource_calculation.constraints,
-               filterable?: resource_calculation.filterable?,
-               sortable?: resource_calculation.sortable?,
-               sensitive?: resource_calculation.sensitive?,
-               load: resource_calculation.load
+        case Ash.Query.Calculation.from_resource_calculation(query.resource, resource_calculation,
+               source_context: query.context
              ) do
           {:ok, calc} ->
             case hydrate_calculations(query, [calc]) do
@@ -1089,6 +1187,57 @@ defmodule Ash.Actions.Read do
     end
   end
 
+  defp hydrate_aggregates(query) do
+    Enum.reduce_while(query.aggregates, {:ok, %{}}, fn {key, aggregate}, {:ok, aggregates} ->
+      case aggregate.field do
+        %Ash.Query.Calculation{} = calculation ->
+          if calculation.module.has_expression?() and
+               Ash.DataLayer.data_layer_can?(query.resource, :expression_calculation) do
+            expression = calculation.module.expression(calculation.opts, calculation.context)
+
+            expression =
+              Ash.Expr.fill_template(
+                expression,
+                query.context[:private][:actor],
+                calculation.context.arguments,
+                query.context
+              )
+
+            case Ash.Filter.hydrate_refs(expression, %{
+                   resource:
+                     Ash.Resource.Info.related(query.resource, aggregate.relationship_path),
+                   public?: false,
+                   parent_stack: parent_stack_from_context(query.context)
+                 }) do
+              {:ok, expression} ->
+                new_field = %{
+                  calculation
+                  | module: Ash.Resource.Calculation.Expression,
+                    opts: [expr: expression]
+                }
+
+                {:cont, {:ok, Map.put(aggregates, key, %{aggregate | field: new_field})}}
+
+              {:error, error} ->
+                {:halt, {:error, error}}
+            end
+          else
+            {:cont, {:ok, Map.put(aggregates, key, aggregate)}}
+          end
+
+        _other ->
+          {:cont, {:ok, Map.put(aggregates, key, aggregate)}}
+      end
+    end)
+    |> case do
+      {:ok, aggregates} ->
+        {:ok, %{query | aggregates: aggregates}}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
   defp compute_expression_at_runtime_for_missing_records(data, query, data_layer_calculations) do
     if Enum.any?(data, & &1.__metadata__[:private][:missing_from_data_layer]) do
       {require_calculating, rest} =
@@ -1121,11 +1270,12 @@ defmodule Ash.Actions.Read do
   end
 
   defp authorize_query(query, opts) do
-    if opts[:authorize?] do
+    if opts[:authorize?] && !Enum.empty?(Ash.Resource.Info.authorizers(query.resource)) do
       case Ash.can(query, opts[:actor],
              return_forbidden_error?: true,
              maybe_is: false,
              pre_flight?: false,
+             filter_with: opts[:authorize_with] || :filter,
              run_queries?: false,
              alter_source?: true
            ) do
@@ -1150,24 +1300,28 @@ defmodule Ash.Actions.Read do
     query =
       query
       |> Map.update!(:calculations, fn calculations ->
-        keys =
+        loaded_keys =
           calculations
-          |> Enum.reject(fn {_key, calc} ->
-            Ash.Resource.loaded?(initial_data, calc)
+          |> Enum.filter(fn
+            {{:__calc_dep__, _}, _} ->
+              false
+
+            {_key, calc} ->
+              Ash.Resource.loaded?(initial_data, calc)
           end)
           |> Enum.map(&elem(&1, 0))
 
-        Map.drop(calculations, keys)
+        Map.drop(calculations, loaded_keys)
       end)
       |> Map.update!(:aggregates, fn aggregates ->
-        keys =
+        loaded_keys =
           aggregates
-          |> Enum.reject(fn {_key, calc} ->
+          |> Enum.filter(fn {_key, calc} ->
             Ash.Resource.loaded?(initial_data, calc)
           end)
           |> Enum.map(&elem(&1, 0))
 
-        Map.drop(aggregates, keys)
+        Map.drop(aggregates, loaded_keys)
       end)
 
     query
@@ -1190,7 +1344,7 @@ defmodule Ash.Actions.Read do
     query.resource
     |> Ash.Resource.Info.attributes()
     |> Enum.filter(fn %{name: name, type: type, constraints: constraints} ->
-      Ash.Type.can_load?(type, constraints) && Ash.Query.selecting?(query, name)
+      Ash.Type.can_load?(type, constraints) && (is_nil(query.select) || name in query.select)
     end)
     |> Enum.map(& &1.name)
     |> Enum.reduce(query.load_through, fn name, load_through ->
@@ -1200,6 +1354,7 @@ defmodule Ash.Actions.Read do
       {:calculation, load_through}, {:ok, results} ->
         load_through
         |> Map.take(Map.keys(query.calculations))
+        |> Enum.reject(fn {_, v} -> is_nil(v) end)
         |> Enum.reduce_while({:ok, results}, fn {name, load_statement}, {:ok, results} ->
           calculation = Map.get(query.calculations, name)
 
@@ -1213,13 +1368,13 @@ defmodule Ash.Actions.Read do
             end
 
           case calculation.type do
-            {:array, _} ->
+            {:array, type} ->
               Enum.reduce_while(values, {:ok, []}, fn list, {:ok, acc} ->
                 case Ash.Type.load(
-                       calculation.type,
+                       type,
                        list,
                        load_statement,
-                       calculation.constraints,
+                       calculation.constraints[:items] || [],
                        %{
                          domain: domain,
                          actor: actor,
@@ -1307,6 +1462,7 @@ defmodule Ash.Actions.Read do
 
       {:attribute, load_through}, {:ok, results} when attrs? ->
         load_through
+        |> Enum.reject(fn {_, v} -> is_nil(v) end)
         |> Enum.reduce_while({:ok, results}, fn {name, load_statement}, {:ok, results} ->
           load_statement =
             if is_map(load_statement) and not is_struct(load_statement) do
@@ -1320,13 +1476,13 @@ defmodule Ash.Actions.Read do
           values = Enum.map(results, &Map.get(&1, attribute.name))
 
           case attribute.type do
-            {:array, _} ->
+            {:array, type} ->
               Enum.reduce_while(values, {:ok, []}, fn list, {:ok, acc} ->
                 case Ash.Type.load(
-                       attribute.type,
+                       type,
                        list,
                        load_statement,
-                       attribute.constraints,
+                       attribute.constraints[:items] || [],
                        %{
                          domain: domain,
                          actor: actor,
@@ -1430,6 +1586,9 @@ defmodule Ash.Actions.Read do
               %Ash.Query.Function.Type{} = expr ->
                 expr
 
+              %Ash.Query.Call{name: :type} = expr ->
+                expr
+
               expr ->
                 {:ok, expr} = Ash.Query.Function.Type.new([expr, calc.type, calc.constraints])
                 expr
@@ -1470,6 +1629,69 @@ defmodule Ash.Actions.Read do
     end)
   end
 
+  def add_calc_context_to_sort(%{sort: empty}, _, _, _, _, _, _) when empty in [[], nil],
+    do: empty
+
+  def add_calc_context_to_sort(query, actor, authorize?, tenant, tracer, resource, domain) do
+    Enum.map(query.sort, fn
+      {%Ash.Query.Calculation{} = calc, order} ->
+        calc = add_calc_context(calc, actor, authorize?, tenant, tracer, domain)
+
+        calc =
+          if calc.module.has_expression?() do
+            expr =
+              case calc.module.expression(calc.opts, calc.context) do
+                %Ash.Query.Function.Type{} = expr ->
+                  expr
+
+                %Ash.Query.Call{name: :type} = expr ->
+                  expr
+
+                expr ->
+                  {:ok, expr} = Ash.Query.Function.Type.new([expr, calc.type, calc.constraints])
+                  expr
+              end
+
+            {:ok, expr} =
+              Ash.Filter.hydrate_refs(
+                expr,
+                %{
+                  resource: resource,
+                  public?: false,
+                  parent_stack: parent_stack_from_context(query.context)
+                }
+              )
+
+            expr =
+              add_calc_context_to_filter(
+                expr,
+                actor,
+                authorize?,
+                tenant,
+                tracer,
+                domain
+              )
+
+            %{calc | module: Ash.Resource.Calculation.Expression, opts: [expr: expr]}
+          else
+            calc
+          end
+
+        {calc, order}
+
+      {%struct{} = calc, direction}
+      when struct in [
+             Ash.Aggregate.Calculation,
+             Ash.Resource.Calculation,
+             Ash.Resource.Aggregate
+           ] ->
+        {add_calc_context(calc, actor, authorize?, tenant, tracer, domain), direction}
+
+      {field, order} ->
+        {field, order}
+    end)
+  end
+
   @doc false
   def handle_multitenancy(query) do
     action_multitenancy = get_action(query.resource, query.action).multitenancy
@@ -1491,12 +1713,16 @@ defmodule Ash.Actions.Read do
   end
 
   defp handle_attribute_multitenancy(query) do
-    multitenancy_attribute = Ash.Resource.Info.multitenancy_attribute(query.resource)
+    if query.tenant && Ash.Resource.Info.multitenancy_strategy(query.resource) == :attribute do
+      multitenancy_attribute = Ash.Resource.Info.multitenancy_attribute(query.resource)
 
-    if multitenancy_attribute && query.tenant do
-      {m, f, a} = Ash.Resource.Info.multitenancy_parse_attribute(query.resource)
-      attribute_value = apply(m, f, [query.to_tenant | a])
-      Ash.Query.filter(query, ^ref(multitenancy_attribute) == ^attribute_value)
+      if multitenancy_attribute do
+        {m, f, a} = Ash.Resource.Info.multitenancy_parse_attribute(query.resource)
+        attribute_value = apply(m, f, [query.to_tenant | a])
+        Ash.Query.filter(query, ^ref(multitenancy_attribute) == ^attribute_value)
+      else
+        query
+      end
     else
       query
     end
@@ -1605,7 +1831,13 @@ defmodule Ash.Actions.Read do
           Ash.Page.Keyset.new(data, count, sort, original_query, more?, opts)
 
         action.pagination.offset? && action.pagination.keyset? ->
-          Ash.Page.Offset.new(data, count, original_query, more?, opts)
+          case Application.get_env(:ash, :default_page_type, :offset) do
+            :keyset ->
+              Ash.Page.Keyset.new(data, count, sort, original_query, more?, opts)
+
+            :offset ->
+              Ash.Page.Offset.new(data, count, original_query, more?, opts)
+          end
 
         action.pagination.offset? ->
           Ash.Page.Offset.new(data, count, original_query, more?, opts)
@@ -1789,21 +2021,15 @@ defmodule Ash.Actions.Read do
             end
           end),
         sort:
-          Enum.map(query.sort, fn {field, direction} ->
-            case field do
-              %struct{} = calc
-              when struct in [
-                     Ash.Query.Calculation,
-                     Ash.Aggregate.Calculation,
-                     Ash.Resource.Calculation,
-                     Ash.Resource.Aggregate
-                   ] ->
-                {add_calc_context(calc, actor, authorize?, tenant, tracer, domain), direction}
-
-              other ->
-                {other, direction}
-            end
-          end),
+          add_calc_context_to_sort(
+            query,
+            actor,
+            authorize?,
+            tenant,
+            tracer,
+            query.resource,
+            domain
+          ),
         aggregates:
           Map.new(query.aggregates, fn {key, agg} ->
             {key,
@@ -1820,11 +2046,11 @@ defmodule Ash.Actions.Read do
 
   @doc false
   def add_calc_context(%Ash.Query.Aggregate{} = agg, actor, authorize?, tenant, tracer, domain) do
-    read_action =
-      agg.read_action || Ash.Resource.Info.primary_action!(agg.query.resource, :read).name
-
     query =
-      if agg.query.__validated_for_action__ != read_action do
+      if is_nil(agg.query.__validated_for_action__) do
+        read_action =
+          agg.read_action || Ash.Resource.Info.primary_action!(agg.query.resource, :read).name
+
         domain =
           if agg.query.domain do
             agg.query.domain
@@ -1834,9 +2060,30 @@ defmodule Ash.Actions.Read do
 
         agg.query
         |> Ash.Query.set_context(%{private: %{require_actor?: false}})
-        |> Ash.Query.for_read(read_action, %{}, domain: domain)
+        |> Ash.Query.for_read(read_action, %{}, domain: domain, actor: actor, tenant: tenant)
       else
         agg.query
+      end
+
+    authorize? =
+      case agg.name do
+        {:__calc_dep__, _} ->
+          true
+
+        _ ->
+          authorize?
+      end
+
+    field =
+      case agg.field do
+        %Ash.Query.Aggregate{} = nested_aggregate ->
+          add_calc_context(nested_aggregate, actor, authorize?, tenant, tracer, domain)
+
+        %Ash.Query.Calculation{} = nested_calculation ->
+          add_calc_context(nested_calculation, actor, authorize?, tenant, tracer, domain)
+
+        _ ->
+          agg.field
       end
 
     %{
@@ -1852,6 +2099,7 @@ defmodule Ash.Actions.Read do
             agg.context
           ),
         query: add_calc_context_to_query(query, actor, authorize?, tenant, tracer, domain),
+        field: field,
         join_filters:
           Map.new(agg.join_filters, fn {key, filter} ->
             {key, add_calc_context_to_filter(filter, actor, authorize?, tenant, tracer, domain)}
@@ -1860,6 +2108,15 @@ defmodule Ash.Actions.Read do
   end
 
   def add_calc_context(calc, actor, authorize?, tenant, tracer, _domain) do
+    authorize? =
+      case calc.name do
+        {:__calc_dep__, _} ->
+          true
+
+        _ ->
+          authorize?
+      end
+
     %{
       calc
       | context: %{
@@ -2204,6 +2461,10 @@ defmodule Ash.Actions.Read do
           {:ok, starting_query}
         end
 
+      page_opts[:count] == true && !action.pagination.countable ->
+        {:error,
+         NonCountableAction.exception(resource: starting_query.resource, action: action.name)}
+
       page_opts[:limit] ->
         page_opts =
           Keyword.put(
@@ -2470,7 +2731,7 @@ defmodule Ash.Actions.Read do
         case Ash.Filter.hydrate_refs(expression, %{
                resource: query.resource,
                public?: false,
-               parent_stack: parent_stack_from_context(query)
+               parent_stack: parent_stack_from_context(query.context)
              }) do
           {:ok, expression} ->
             {:cont, {:ok, [{calculation, expression} | calculations]}}
@@ -2486,16 +2747,16 @@ defmodule Ash.Actions.Read do
     end)
   end
 
-  defp parent_stack_from_context(%{
-         context: %{
+  defp parent_stack_from_context(
+         %{
            data_layer: %{lateral_join_source: {_, [{%{resource: resource}, _, _, _} | _]}}
-         }
-       }) do
-    [resource]
+         } = context
+       ) do
+    [resource] ++ List.wrap(context[:parent_stack])
   end
 
-  defp parent_stack_from_context(_query) do
-    []
+  defp parent_stack_from_context(context) do
+    List.wrap(context[:parent_stack])
   end
 
   defp authorize_calculation_expressions(
@@ -2608,7 +2869,9 @@ defmodule Ash.Actions.Read do
     with %{valid?: true} = aggregate_query <-
            Ash.Query.for_read(related_resource, read_action),
          %{valid?: true} = aggregate_query <-
-           Ash.Query.Aggregate.build_query(aggregate_query,
+           Ash.Query.Aggregate.build_query(
+             aggregate_query,
+             resource,
              filter: resource_aggregate.filter,
              sort: resource_aggregate.sort
            ),
@@ -2617,6 +2880,7 @@ defmodule Ash.Actions.Read do
              resource,
              resource_aggregate.name,
              resource_aggregate.kind,
+             agg_name: resource_aggregate.name,
              path: resource_aggregate.relationship_path,
              query: aggregate_query,
              field: resource_aggregate.field,
@@ -2625,6 +2889,7 @@ defmodule Ash.Actions.Read do
              type: resource_aggregate.type,
              constraints: resource_aggregate.constraints,
              implementation: resource_aggregate.implementation,
+             include_nil?: resource_aggregate.include_nil?,
              uniq?: resource_aggregate.uniq?,
              read_action: read_action,
              authorize?: resource_aggregate.authorize?,
@@ -2740,6 +3005,9 @@ defmodule Ash.Actions.Read do
           %Ash.Query.Function.Type{} = expr ->
             expr
 
+          %Ash.Query.Call{name: :type} = expr ->
+            expr
+
           expr ->
             {:ok, expr} = Ash.Query.Function.Type.new([expr, calc.type, calc.constraints])
             expr
@@ -2820,18 +3088,10 @@ defmodule Ash.Actions.Read do
 
     case Ash.Resource.Info.field(related_resource, aggregate.field) do
       %Ash.Resource.Calculation{} = resource_calculation ->
-        {module, opts} = resource_calculation.calculation
-
-        case Ash.Query.Calculation.new(
-               resource_calculation.name,
-               module,
-               opts,
-               resource_calculation.type,
-               resource_calculation.constraints,
-               filterable?: resource_calculation.filterable?,
-               sortable?: resource_calculation.sortable?,
-               sensitive?: resource_calculation.sensitive?,
-               load: resource_calculation.load
+        case Ash.Query.Calculation.from_resource_calculation(
+               aggregate.resource,
+               resource_calculation,
+               source_context: aggregate.context[:source_context] || %{}
              ) do
           {:ok, calculation} ->
             aggregate_field_with_related_filters(
@@ -2860,7 +3120,9 @@ defmodule Ash.Actions.Read do
         with %{valid?: true} = aggregate_query <-
                Ash.Query.for_read(agg_related_resource, read_action),
              %{valid?: true} = aggregate_query <-
-               Ash.Query.Aggregate.build_query(aggregate_query,
+               Ash.Query.Aggregate.build_query(
+                 aggregate_query,
+                 related_resource,
                  filter: resource_aggregate.filter,
                  sort: resource_aggregate.sort
                ),
@@ -2869,6 +3131,7 @@ defmodule Ash.Actions.Read do
                  related_resource,
                  resource_aggregate.name,
                  resource_aggregate.kind,
+                 agg_name: resource_aggregate.name,
                  path: resource_aggregate.relationship_path,
                  query: aggregate_query,
                  field: resource_aggregate.field,
@@ -2876,6 +3139,7 @@ defmodule Ash.Actions.Read do
                  filterable?: resource_aggregate.filterable?,
                  type: resource_aggregate.type,
                  constraints: resource_aggregate.constraints,
+                 include_nil?: resource_aggregate.include_nil?,
                  implementation: resource_aggregate.implementation,
                  uniq?: resource_aggregate.uniq?,
                  read_action: read_action,

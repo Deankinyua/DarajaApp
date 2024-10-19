@@ -168,7 +168,10 @@ defmodule Ash.DataLayer do
           batch_size: pos_integer,
           return_records?: boolean,
           upsert?: boolean,
+          action_select: list(atom),
           upsert_keys: nil | list(atom),
+          upsert_condition: Ash.Expr.t() | nil,
+          identity: Ash.Resource.Identity.t() | nil,
           select: list(atom),
           upsert_fields:
             nil
@@ -181,6 +184,7 @@ defmodule Ash.DataLayer do
 
   @type bulk_update_options :: %{
           return_records?: boolean,
+          action_select: list(atom),
           calculations: list({Ash.Query.Calculation.t(), Ash.Expr.t()}),
           select: list(atom),
           tenant: term()
@@ -189,7 +193,7 @@ defmodule Ash.DataLayer do
   @callback bulk_create(
               Ash.Resource.t(),
               Enumerable.t(Ash.Changeset.t()),
-              options :: bulk_create_options
+              options :: bulk_create_options()
             ) ::
               :ok
               | {:ok, Enumerable.t(Ash.Resource.record())}
@@ -199,6 +203,18 @@ defmodule Ash.DataLayer do
               {:ok, Ash.Resource.record()} | {:error, term} | {:error, :no_rollback, term}
   @callback upsert(Ash.Resource.t(), Ash.Changeset.t(), list(atom)) ::
               {:ok, Ash.Resource.record()} | {:error, term} | {:error, :no_rollback, term}
+  @callback upsert(
+              Ash.Resource.t(),
+              Ash.Changeset.t(),
+              list(atom),
+              Ash.Resource.Identity.t() | nil
+            ) ::
+              {:ok,
+               Ash.Resource.record()
+               | {:upsert_skipped, Ash.Query.t(),
+                  (-> {:ok, Ash.Resource.record()} | {:error, term} | {:error, :no_rollback, term})}}
+              | {:error, term}
+              | {:error, :no_rollback, term}
   @callback update(Ash.Resource.t(), Ash.Changeset.t()) ::
               {:ok, Ash.Resource.record()} | {:error, term} | {:error, :no_rollback, term}
 
@@ -292,6 +308,7 @@ defmodule Ash.DataLayer do
                       transaction: 4,
                       rollback: 2,
                       upsert: 3,
+                      upsert: 4,
                       functions: 1,
                       in_transaction?: 1,
                       prefer_lateral_join_for_many_to_many?: 0,
@@ -516,12 +533,28 @@ defmodule Ash.DataLayer do
     Ash.DataLayer.data_layer(resource).set_tenant(resource, query, term)
   end
 
-  @spec upsert(Ash.Resource.t(), Ash.Changeset.t(), list(atom)) ::
-          {:ok, Ash.Resource.record()} | {:error, term}
-  def upsert(resource, changeset, keys) do
-    changeset = %{changeset | tenant: changeset.to_tenant}
+  @spec upsert(
+          Ash.Resource.t(),
+          Ash.Changeset.t(),
+          list(atom),
+          identity :: Ash.Resource.Identity.t() | nil
+        ) ::
+          {:ok,
+           Ash.Resource.record()
+           | {:upsert_skipped, Ash.Query.t(),
+              (-> {:ok, Ash.Resource.record()} | {:error, term} | {:error, :no_rollback, term})}}
+          | {:error, term}
+          | {:error, :no_rollback, term}
 
-    Ash.DataLayer.data_layer(resource).upsert(resource, changeset, keys)
+  def upsert(resource, changeset, keys, identity \\ nil) do
+    changeset = %{changeset | tenant: changeset.to_tenant}
+    data_layer = Ash.DataLayer.data_layer(resource)
+
+    if function_exported?(data_layer, :upsert, 4) do
+      data_layer.upsert(resource, changeset, keys, identity)
+    else
+      data_layer.upsert(resource, changeset, keys)
+    end
   end
 
   @spec set_context(Ash.Resource.t(), data_layer_query(), map) ::

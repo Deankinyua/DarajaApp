@@ -30,25 +30,30 @@ defmodule Ash.Actions.Destroy do
     changeset = Helpers.apply_opts_load(changeset, opts)
 
     Ash.Tracer.span :action,
-                    Ash.Domain.Info.span_name(
-                      domain,
-                      changeset.resource,
-                      action.name
-                    ),
+                    fn ->
+                      Ash.Domain.Info.span_name(
+                        domain,
+                        changeset.resource,
+                        action.name
+                      )
+                    end,
                     opts[:tracer] do
-      metadata = %{
-        domain: domain,
-        resource: changeset.resource,
-        resource_short_name: Ash.Resource.Info.short_name(changeset.resource),
-        actor: opts[:actor],
-        tenant: opts[:tenant],
-        action: action.name,
-        authorize?: opts[:authorize?]
-      }
+      metadata = fn ->
+        %{
+          domain: domain,
+          resource: changeset.resource,
+          resource_short_name: Ash.Resource.Info.short_name(changeset.resource),
+          actor: opts[:actor],
+          tenant: opts[:tenant],
+          action: action.name,
+          authorize?: opts[:authorize?]
+        }
+      end
 
       Ash.Tracer.set_metadata(opts[:tracer], :action, metadata)
 
-      Ash.Tracer.telemetry_span [:ash, Ash.Domain.Info.short_name(domain), :destroy], metadata do
+      Ash.Tracer.telemetry_span [:ash, Ash.Domain.Info.short_name(domain), :destroy],
+                                metadata do
         case do_run(domain, changeset, action, opts) do
           {:error, error} ->
             if opts[:tracer] do
@@ -98,6 +103,8 @@ defmodule Ash.Actions.Destroy do
     with %{valid?: true} = changeset <- Ash.Changeset.validate_multitenancy(changeset),
          %{valid?: true} = changeset <- changeset(changeset, domain, action, opts),
          %{valid?: true} = changeset <- authorize(changeset, opts),
+         %{valid?: true} = changeset <-
+           Ash.Changeset.add_atomic_validations(changeset, opts[:actor], []),
          {:ok, result, instructions} <- commit(changeset, domain, opts) do
       changeset.resource
       |> add_notifications(
@@ -162,6 +169,8 @@ defmodule Ash.Actions.Destroy do
           {:error, changeset}
 
         changeset ->
+          changeset = Ash.Changeset.set_action_select(changeset)
+
           case Helpers.load({:ok, changeset.data, %{}}, changeset, domain,
                  actor: opts[:actor],
                  reuse_values?: true,
@@ -170,6 +179,8 @@ defmodule Ash.Actions.Destroy do
                ) do
             {:ok, new_data, _} ->
               changeset = %{changeset | data: new_data}
+
+              changeset = set_tenant(changeset)
 
               if changeset.action.manual do
                 {mod, action_opts} = changeset.action.manual
@@ -217,6 +228,12 @@ defmodule Ash.Actions.Destroy do
                       |> Helpers.select(changeset)
                       |> Helpers.restrict_field_access(changeset)
                     else
+                      destroyed =
+                        Helpers.select(destroyed, %{
+                          resource: changeset.resource,
+                          select: changeset.action_select
+                        })
+
                       {:ok, destroyed, %{notifications: []}}
                       |> Helpers.notify(changeset, opts)
                     end
@@ -261,6 +278,37 @@ defmodule Ash.Actions.Destroy do
 
       {:error, error} ->
         {:error, error}
+    end
+  end
+
+  defp set_tenant(changeset) do
+    changeset =
+      case changeset.data do
+        %{__metadata__: %{tenant: tenant}} ->
+          Ash.Changeset.set_tenant(changeset, tenant)
+
+        _ ->
+          changeset
+      end
+
+    if changeset.tenant &&
+         Ash.Resource.Info.multitenancy_strategy(changeset.resource) == :attribute do
+      attribute = Ash.Resource.Info.multitenancy_attribute(changeset.resource)
+
+      {m, f, a} = Ash.Resource.Info.multitenancy_parse_attribute(changeset.resource)
+      attribute_value = apply(m, f, [changeset.to_tenant | a])
+
+      Ash.Changeset.filter(changeset, [{attribute, attribute_value}])
+    else
+      if is_nil(Ash.Resource.Info.multitenancy_strategy(changeset.resource)) ||
+           Ash.Resource.Info.multitenancy_global?(changeset.resource) || changeset.tenant do
+        changeset
+      else
+        Ash.Changeset.add_error(
+          changeset,
+          Ash.Error.Invalid.TenantRequired.exception(resource: changeset.resource)
+        )
+      end
     end
   end
 

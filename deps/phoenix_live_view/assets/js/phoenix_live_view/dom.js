@@ -70,7 +70,8 @@ let DOM = {
     let wantsNewTab = e.ctrlKey || e.shiftKey || e.metaKey || (e.button && e.button === 1)
     let isDownload = (e.target instanceof HTMLAnchorElement && e.target.hasAttribute("download"))
     let isTargetBlank = e.target.hasAttribute("target") && e.target.getAttribute("target").toLowerCase() === "_blank"
-    return wantsNewTab || isTargetBlank || isDownload
+    let isTargetNamedTab = e.target.hasAttribute("target") && !e.target.getAttribute("target").startsWith("_")
+    return wantsNewTab || isTargetBlank || isDownload || isTargetNamedTab
   },
 
   isUnloadableFormSubmit(e){
@@ -222,7 +223,9 @@ let DOM = {
 
       case "blur":
         if(this.once(el, "debounce-blur")){
-          el.addEventListener("blur", () => callback())
+          el.addEventListener("blur", () => {
+            if(asyncFilter()){ callback() }
+          })
         }
         return
 
@@ -479,7 +482,6 @@ let DOM = {
     if(!DOM.isTextualInput(focused)){ return }
 
     let wasFocused = focused.matches(":focus")
-    if(focused.readOnly){ focused.blur() }
     if(!wasFocused){ focused.focus() }
     if(this.hasSelectionRange(focused)){
       focused.setSelectionRange(selectionStart, selectionEnd)
@@ -526,7 +528,7 @@ let DOM = {
         if(!childNode.id){
           // Skip warning if it's an empty text node (e.g. a new-line)
           let isEmptyTextNode = childNode.nodeType === Node.TEXT_NODE && childNode.nodeValue.trim() === ""
-          if(!isEmptyTextNode){
+          if(!isEmptyTextNode && childNode.nodeType !== Node.COMMENT_NODE){
             logError("only HTML element tags with an id are allowed inside containers with phx-update.\n\n" +
               `removing illegal node: "${(childNode.outerHTML || childNode.nodeValue).trim()}"\n\n`)
           }

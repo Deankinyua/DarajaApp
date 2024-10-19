@@ -10,6 +10,7 @@ defmodule Ash.Resource.Attribute do
     :public?,
     :writable?,
     :always_select?,
+    :select_by_default?,
     :default,
     :update_default,
     :description,
@@ -39,6 +40,7 @@ defmodule Ash.Resource.Attribute do
           primary_key?: boolean(),
           public?: boolean(),
           sortable?: boolean(),
+          select_by_default?: boolean(),
           default: nil | term | (-> term),
           update_default: nil | term | (-> term) | (Ash.Resource.record() -> term),
           sensitive?: boolean(),
@@ -70,13 +72,20 @@ defmodule Ash.Resource.Attribute do
       type: :boolean,
       default: false,
       doc: """
-      Whether or not the attribute value contains sensitive information, like PII. See the [Sensitive Data guide](/documentation/topics/security/sensitive-data.md) for more.
+      Whether or not the attribute value contains sensitive information, like PII(Personally Identifiable Information). See the [Sensitive Data guide](/documentation/topics/security/sensitive-data.md) for more.
       """
     ],
     source: [
       type: :atom,
       doc: """
       If the field should be mapped to a different name in the data layer. Support varies by data layer.
+      """
+    ],
+    select_by_default?: [
+      type: :boolean,
+      default: true,
+      doc: """
+      Whether or not the attribute is selected by default.
       """
     ],
     always_select?: [
@@ -124,7 +133,7 @@ defmodule Ash.Resource.Attribute do
     default: [
       type: {:or, [{:mfa_or_fun, 0}, :literal]},
       doc: """
-      A value to be set on all creates, unless a value is being provided already.  Note: The default value is casted according to the type's Ash.Type.* module, before it is saved.  For `:string`, for example, if `constraints: [allow_empty?: _]` is false, the value `\"\"` will be cast to `nil`.  See the `:constraints` option, the `:allow_nil?` option, and the relevant `Ash.Type.*` documentation.
+      A value to be set on all creates, unless a value is being provided already.  Note: The default value is casted according to the type's `Ash.Type.*` module, before it is saved.  For `:string`, for example, if `constraints: [allow_empty?: _]` is false, the value `\"\"` will be cast to `nil`.  See the `:constraints` option, the `:allow_nil?` option, and the relevant `Ash.Type.*` documentation.
       """
     ],
     update_default: [
@@ -183,6 +192,18 @@ defmodule Ash.Resource.Attribute do
                            |> Keyword.delete(:allow_nil?)
                            |> Ash.OptionsHelpers.hide_all_except([:name])
 
+  @uuid_v7_primary_key_schema @schema
+                              |> Spark.Options.Helpers.set_default!(:public?, true)
+                              |> Spark.Options.Helpers.set_default!(:writable?, false)
+                              |> Spark.Options.Helpers.set_default!(
+                                :default,
+                                &Ash.UUIDv7.generate/0
+                              )
+                              |> Spark.Options.Helpers.set_default!(:primary_key?, true)
+                              |> Spark.Options.Helpers.set_default!(:type, :uuid_v7)
+                              |> Keyword.delete(:allow_nil?)
+                              |> Ash.OptionsHelpers.hide_all_except([:name])
+
   @integer_primary_key_schema @schema
                               |> Spark.Options.Helpers.set_default!(:public?, true)
                               |> Spark.Options.Helpers.set_default!(:writable?, false)
@@ -201,5 +222,6 @@ defmodule Ash.Resource.Attribute do
   def create_timestamp_schema, do: @create_timestamp_schema
   def update_timestamp_schema, do: @update_timestamp_schema
   def uuid_primary_key_schema, do: @uuid_primary_key_schema
+  def uuid_v7_primary_key_schema, do: @uuid_v7_primary_key_schema
   def integer_primary_key_schema, do: @integer_primary_key_schema
 end

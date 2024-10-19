@@ -37,6 +37,13 @@ defmodule AshAuthentication.Phoenix.LiveSession do
   defmacro ash_authentication_live_session(session_name \\ :ash_authentication, opts \\ [],
              do: block
            ) do
+    opts =
+      if Macro.quoted_literal?(opts) do
+        Macro.prewalk(opts, &expand_alias(&1, __CALLER__))
+      else
+        opts
+      end
+
     quote do
       on_mount = [LiveSession]
 
@@ -64,6 +71,11 @@ defmodule AshAuthentication.Phoenix.LiveSession do
     end
   end
 
+  defp expand_alias({:__aliases__, _, _} = alias, env),
+    do: Macro.expand(alias, %{env | function: {:mount, 3}})
+
+  defp expand_alias(other, _env), do: other
+
   @doc """
   Inspects the incoming session for any subject_name -> subject values and loads
   them into the socket's assigns.
@@ -87,6 +99,7 @@ defmodule AshAuthentication.Phoenix.LiveSession do
     tenant = session["tenant"]
 
     socket = assign(socket, current_tenant: tenant)
+    context = session["context"] || %{}
 
     socket =
       socket
@@ -103,7 +116,10 @@ defmodule AshAuthentication.Phoenix.LiveSession do
         assign_new(socket, current_subject_name, fn ->
           if value = session[subject_name] do
             # credo:disable-for-next-line Credo.Check.Refactor.Nesting
-            case AshAuthentication.subject_to_user(value, resource, tenant: tenant) do
+            case AshAuthentication.subject_to_user(value, resource,
+                   tenant: tenant,
+                   context: context
+                 ) do
               {:ok, user} -> user
               _ -> nil
             end
@@ -143,10 +159,12 @@ defmodule AshAuthentication.Phoenix.LiveSession do
           session
           |> Map.put(subject_name, AshAuthentication.user_to_subject(user))
           |> Map.put("tenant", Ash.PlugHelpers.get_tenant(conn))
+          |> Map.put("context", Ash.PlugHelpers.get_context(conn))
 
         _ ->
           session
           |> Map.put("tenant", Ash.PlugHelpers.get_tenant(conn))
+          |> Map.put("context", Ash.PlugHelpers.get_context(conn))
       end
     end)
   end

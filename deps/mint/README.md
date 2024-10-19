@@ -1,6 +1,6 @@
 # Mint 🌱
 
-[![Build status badge](https://travis-ci.org/elixir-mint/mint.svg?branch=master)](https://travis-ci.org/elixir-mint/mint)
+[![CI badge](https://github.com/elixir-mint/mint/actions/workflows/main.yml/badge.svg)](https://github.com/elixir-mint/mint/actions/workflows/main.yml)
 [![Documentation badge](https://img.shields.io/badge/Documentation-ff69b4)][documentation]
 [![Hex.pm badge](https://img.shields.io/badge/Package%20on%20hex.pm-informational)](https://hex.pm/packages/mint)
 [![Coverage status badge](https://coveralls.io/repos/github/elixir-mint/mint/badge.svg?branch=main)](https://coveralls.io/github/elixir-mint/mint?branch=main)
@@ -9,12 +9,11 @@
 
 ## Installation
 
-To install Mint, add it to your `mix.exs` file. Unless you're using your own SSL certificate store, also add the [CAStore][castore] library to your dependencies.
+To install Mint, add it to your `mix.exs` file:
 
 ```elixir
 defp deps do
   [
-    {:castore, "~> 1.0"},
     {:mint, "~> 1.0"}
   ]
 end
@@ -83,7 +82,7 @@ For more information, see [the documentation][documentation].
 
 ### SSL certificates
 
-When using SSL, you can pass in your own CA certificate store or use one provided by Mint. Mint doesn't ship with the certificate store itself, but it has an optional dependency on [CAStore][castore], which provides an up-to-date certificate store. If you don't want to use your own certificate store, just add `:castore` to your dependencies.
+When using SSL, you can pass in your own CA certificate store. If one is not provided, Mint will use the one in your system, as long as you are using Erlang/OTP 25+. If none of these conditions are true, just add `:castore` to your dependencies.
 
 ```elixir
 defp deps do

@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.0
+
+* Add PO Parser Metadata Stripping
+
+## v1.0.1
+
+* Fix backslash escaping in `Expo.PO.compose/1`
+
+## v1.0.0
+
+* Fix compose output of extracted comments on plural messages
+
 ## v0.5.2
 
 * Fix Elixir 1.16 deprecations

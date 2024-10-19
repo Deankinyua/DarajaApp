@@ -28,11 +28,16 @@ defmodule Ash.Type.Module do
   def constraints, do: @constraints
 
   @impl true
+  def matches_type?(v, _constraints) do
+    is_atom(v)
+  end
+
+  @impl true
   def cast_atomic(new_value, _constraints) do
     {:atomic, new_value}
   end
 
-  def apply_constraints(nil, _), do: :ok
+  def apply_constraints(nil, _), do: {:ok, nil}
 
   def apply_constraints(value, constraints) do
     []

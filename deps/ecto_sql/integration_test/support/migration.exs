@@ -27,6 +27,7 @@ defmodule Ecto.Integration.Migration do
       add :intensity, :float
       add :author_id, :integer
       add :posted, :date
+      add :read_only, :string
       timestamps(null: true)
     end
 
@@ -104,6 +105,26 @@ defmodule Ecto.Integration.Migration do
       create table(:array_loggings) do
         add :uuids, {:array, :uuid}, default: []
         timestamps()
+      end
+    end
+
+    unless :bitstring_type in ExUnit.configuration()[:exclude] do
+      create table(:bitstrings) do
+        add :bs,  :bitstring
+        add :bs_with_default, :bitstring, default: <<42::6>>
+        add :bs_with_size, :bitstring, size: 10
+      end
+    end
+
+    if Code.ensure_loaded?(Duration) do
+      unless :duration_type in ExUnit.configuration()[:exclude] do
+        create table(:durations) do
+          add :dur, :duration
+          add :dur_with_fields, :duration, fields: "MONTH"
+          add :dur_with_precision, :duration, precision: 4
+          add :dur_with_fields_and_precision, :duration, fields: "HOUR TO SECOND", precision: 1
+          add :dur_with_default, :duration, default: "10 MONTH"
+        end
       end
     end
 

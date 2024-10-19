@@ -38,7 +38,7 @@ defmodule Phoenix.LiveDashboard.RequestLoggerPage do
   def mount(_, %{request_logger: _}, socket) do
     stream = :crypto.strong_rand_bytes(3) |> Base.url_encode64()
     to = live_dashboard_path(socket, socket.assigns.page, stream: stream)
-    {:ok, push_redirect(socket, to: to)}
+    {:ok, push_navigate(socket, to: to)}
   end
 
   @impl true
@@ -83,7 +83,7 @@ defmodule Phoenix.LiveDashboard.RequestLoggerPage do
         <div class="card-body">
           <div id="logger-messages" phx-update="stream">
             <%= for {id, {message, level}} <- @streams.messages do %>
-              <pre id={id} class={"log-level#{level}"}><%= message %></pre>
+              <pre id={id} class={"log-level#{level} text-wrap"}><%= message %></pre>
             <% end %>
           </div>
           <!-- Autoscroll ON/OFF checkbox -->

@@ -6,18 +6,14 @@ defmodule Ash.Query.Function.Type do
 
   def args, do: [[:any, :any], [:any, :any, :any]]
 
+  def returns, do: :unknown
+
   def new([val, type]) do
     new([val, type, []])
   end
 
   def new([val, type, constraints]) do
-    case Spark.Options.validate(constraints, Ash.Type.constraints(type)) do
-      {:ok, constraints} ->
-        {:ok, %__MODULE__{arguments: [val, type, constraints]}}
-
-      {:error, error} ->
-        {:error, error}
-    end
+    {:ok, %__MODULE__{arguments: [val, type, constraints]}}
   end
 
   def can_return_nil?(%{arguments: [value | _]}) do

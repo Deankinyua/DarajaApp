@@ -40,6 +40,76 @@ The actions we will be able to take on these resources include:
 
 ### Create a new project
 
+<!-- tabs-open -->
+
+### Using Igniter (recommended)
+
+First, to use `mix igniter.new`, the archive must be installed.
+
+To install it, run
+
+```bash
+mix archive.install hex igniter_new
+```
+
+Then, create a new project:
+
+```elixir
+mix igniter.new helpdesk --install ash && cd helpdesk
+```
+
+If you already know that you want to use Phoenix and Ash together, you can use
+
+```elixir
+# install the archive
+mix archive.install hex phx_new
+
+# use the `--with` flag to generate the project with phx.new and add Ash
+mix igniter.new helpdesk --install ash --with phx.new && cd helpdesk
+```
+
+It is a good idea to make it a git repository and commit the initial project. You'll be able to see what changes we made, and can save your changes once we're done.
+
+```bash
+# Run in your terminal
+git init
+git add -A
+git commit -m "first commit"
+git branch -M main
+```
+
+Open the project in your text editor, and we'll get started.
+
+> ### Want to skip to the end? {: .info}
+>
+> Add the `--example` flag to get the example code add directly to your app!
+>
+> ```bash
+> mix igniter.new helpdesk --install ash --extend ets --example
+> ```
+>
+> Already know you want to use `AshPostgres`? Use the `--extend` argument.
+>
+> ```bash
+> mix igniter.new helpdesk --install ash,ash_postgres --example --extend postgres`
+> ```
+>
+> Want to start with a Phoenix app setup too? Use the `--with` argument.
+>
+> ```bash
+> mix archive.install hex phx_new
+>
+> mix igniter.new helpdesk \
+>   --install ash,ash_postgres \
+>   --with phx.new \
+>   --extend postgres \
+>   --example
+> ```
+>
+> If you generate this code, you can browse the rest of the guide, but the code shown will already be present in your application 🥳
+
+### Using Mix
+
 We first create a new project with the `--sup` flag to add a supervision tree. This will be necessary for other follow-up tutorials.
 
 ```bash
@@ -74,11 +144,7 @@ end
 
 And then run `mix deps.get && mix deps.compile` to install the dependencies
 
-> ### Picosat installation issues? {: .info}
->
-> If you have trouble compiling `picosat_elixir`, then replace `{:picosat_elixir, "~> 0.2"}` with `{:simple_sat, "~> 0.1"}` to use a simpler (but mildly slower) solver. You can always switch back to `picosat_elixir` later once you're done with the tutorial.
-
-### Formatting
+#### Formatting
 
 To ensure that your code stays formatted like the examples here, you can add `:ash` as an import dependency in your `.formatter.exs`:
 
@@ -89,6 +155,12 @@ To ensure that your code stays formatted like the examples here, you can add `:a
   # ...
 ]
 ```
+
+<!-- tabs-close -->
+
+> ### Picosat installation issues? {: .info}
+>
+> If you have trouble compiling `picosat_elixir`, then replace `{:picosat_elixir, "~> 0.2"}` with `{:simple_sat, "~> 0.1"}` to use a simpler (but mildly slower) solver. You can always switch back to `picosat_elixir` later once you're done with the tutorial.
 
 > #### Note {: .neutral}
 >
@@ -164,7 +236,7 @@ defmodule Helpdesk.Support.Ticket do
 end
 ```
 
-Next, add your domain to your `config.exs`
+Next, add your domain to your `config.exs`, and configure some backwards compatibility configuration.
 
 Run the following to create your `config.exs` if it doesn't already exist
 
@@ -180,6 +252,13 @@ and add the following contents to it.
 import Config
 
 config :helpdesk, :ash_domains, [Helpdesk.Support]
+
+config :ash,
+  include_embedded_source_by_default?: false,
+  default_page_type: :keyset
+
+config :ash, :policies,
+  no_filter_static_forbidden_reads?: false
 ```
 
 ### Try our first resource out
@@ -353,7 +432,7 @@ Which will raise an error explaining that there is no data to be read for that r
 
 In order to save our data somewhere, we need to add a data layer to our resources. Before we do that, however, let's go over how Ash allows us to work against many different data layers (or even no data layer at all).
 
-Resources without a data layer will implicitly be using `Ash.DataLayer.Simple`, which will just return structs and won't actually store anything. The way that we make our queries return some data is by leveraging `context`, a free-form map available on queries and changesets. The simple data layer looks for `query.context[:data_layer][:data][resource]`. It provides a utility, `Ash.DataLayer.Simple.set_data/2` to set it.
+Resources without a data layer will implicitly be using `Ash.DataLayer.Simple`. This data is not persisted anywhere, and must be provided when running queries. It provides a utility for just this purpose, `Ash.DataLayer.Simple.set_data/2`.
 
 Try the following in `iex`. We will open some tickets, and close some of them, and then use `Ash.DataLayer.Simple.set_data/2` to use those tickets.
 

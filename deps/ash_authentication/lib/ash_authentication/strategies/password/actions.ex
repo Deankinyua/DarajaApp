@@ -34,8 +34,8 @@ defmodule AshAuthentication.Strategy.Password.Actions do
     strategy.resource
     |> Query.new()
     |> Query.set_context(context)
-    |> Query.for_read(strategy.sign_in_action_name, params)
-    |> Ash.read(options)
+    |> Query.for_read(strategy.sign_in_action_name, params, options)
+    |> Ash.read()
     |> case do
       {:ok, [user]} ->
         {:ok, user}
@@ -110,7 +110,7 @@ defmodule AshAuthentication.Strategy.Password.Actions do
     strategy.resource
     |> Query.new()
     |> Query.set_context(%{private: %{ash_authentication?: true}})
-    |> Query.for_read(strategy.sign_in_with_token_action_name, params)
+    |> Query.for_read(strategy.sign_in_with_token_action_name, %{"token" => params["token"]})
     |> Ash.read(options)
     |> case do
       {:ok, [user]} ->
@@ -162,8 +162,8 @@ defmodule AshAuthentication.Strategy.Password.Actions do
         ash_authentication?: true
       }
     })
-    |> Changeset.for_create(strategy.register_action_name, params)
-    |> Ash.create(options)
+    |> Changeset.for_create(strategy.register_action_name, params, options)
+    |> Ash.create()
   end
 
   def register(strategy, _params, _options) when is_struct(strategy, Password) do
@@ -188,22 +188,51 @@ defmodule AshAuthentication.Strategy.Password.Actions do
         params,
         options
       ) do
-    options =
-      options
-      |> Keyword.put_new_lazy(:domain, fn -> Info.domain!(strategy.resource) end)
+    case Ash.Resource.Info.action(
+           strategy.resource,
+           resettable.request_password_reset_action_name
+         ) do
+      nil ->
+        {:error,
+         NoSuchAction.exception(resource: strategy.resource, action: :reset_request, type: :read)}
 
-    strategy.resource
-    |> Query.new()
-    |> Query.set_context(%{
-      private: %{
-        ash_authentication?: true
-      }
-    })
-    |> Query.for_read(resettable.request_password_reset_action_name, params)
-    |> Ash.read(options)
-    |> case do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
+      %{type: :read, name: action_name} ->
+        options =
+          options
+          |> Keyword.put_new_lazy(:domain, fn -> Info.domain!(strategy.resource) end)
+
+        strategy.resource
+        |> Query.new()
+        |> Query.set_context(%{
+          private: %{
+            ash_authentication?: true
+          }
+        })
+        |> Query.for_read(action_name, params, options)
+        |> Ash.read()
+        |> case do
+          {:ok, _} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      %{type: :action, name: action_name} ->
+        options =
+          options
+          |> Keyword.put_new_lazy(:domain, fn -> Info.domain!(strategy.resource) end)
+
+        strategy.resource
+        |> Ash.ActionInput.new()
+        |> Ash.ActionInput.set_context(%{
+          private: %{
+            ash_authentication?: true
+          }
+        })
+        |> Ash.ActionInput.for_action(action_name, params, options)
+        |> Ash.run_action()
+        |> case do
+          {:ok, _} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 
@@ -235,13 +264,13 @@ defmodule AshAuthentication.Strategy.Password.Actions do
           ash_authentication?: true
         }
       })
-      |> Changeset.for_update(resettable.password_reset_action_name, params)
+      |> Changeset.for_update(resettable.password_reset_action_name, params, options)
       |> Changeset.after_action(fn _changeset, record ->
         token_resource = Info.authentication_tokens_token_resource!(resource)
-        :ok = TokenResource.revoke(token_resource, token)
+        :ok = TokenResource.revoke(token_resource, token, options)
         {:ok, record}
       end)
-      |> Ash.update(options)
+      |> Ash.update()
     else
       {:error, %Changeset{} = changeset} -> {:error, changeset}
       _ -> {:error, Errors.InvalidToken.exception(type: :reset)}

@@ -5,31 +5,37 @@ defmodule AshSql.Atomics do
     {:ok, query}
   end
 
+  # sobelow_skip ["DOS.StringToAtom"]
   def select_atomics(resource, query, atomics) do
-    Enum.reduce_while(atomics, {:ok, query, []}, fn {field, expr}, {:ok, query, dynamics} ->
+    atomics = type_atomics(query.__ash_bindings__.sql_behaviour, resource, atomics)
+
+    atomics
+    |> Enum.reverse()
+    |> Enum.reduce_while({:ok, query, []}, fn {field, expr}, {:ok, query, dynamics} ->
       attribute = Ash.Resource.Info.attribute(resource, field)
 
       type =
-        query.__ash_bindings__.sql_behaviour.parameterized_type(
-          attribute.type,
-          attribute.constraints
-        )
+        query.__ash_bindings__.sql_behaviour.storage_type(resource, attribute.name) ||
+          query.__ash_bindings__.sql_behaviour.parameterized_type(
+            attribute.type,
+            attribute.constraints
+          )
 
       case AshSql.Expr.dynamic_expr(
              query,
              expr,
              Map.merge(query.__ash_bindings__, %{
-               location: :update,
-               updating_field: attribute.name
+               location: :update
              }),
              false,
              type
            ) do
         {dynamic, acc} ->
-          field = String.to_atom("__new_#{field}")
+          new_field = String.to_atom("__new_#{field}")
 
           {:cont,
-           {:ok, AshSql.Expr.merge_accumulator(query, acc), Keyword.put(dynamics, field, dynamic)}}
+           {:ok, AshSql.Expr.merge_accumulator(query, acc),
+            dynamics ++ [{new_field, {dynamic, field}}]}}
 
         other ->
           {:halt, other}
@@ -39,34 +45,45 @@ defmodule AshSql.Atomics do
       {:ok, query, dynamics} ->
         query = Ecto.Query.exclude(query, :select)
 
-        {params, selects, _, query} =
+        pkey_dynamics =
+          resource
+          |> Ash.Resource.Info.primary_key()
+          |> Enum.map(fn key ->
+            {key, {Ecto.Query.dynamic([row], field(row, ^key)), key}}
+          end)
+
+        dynamics = Keyword.merge(dynamics, pkey_dynamics)
+
+        {params, selects, subqueries, _, query} =
           Enum.reduce(
             dynamics,
-            {[], [], 0, query},
-            fn {key, value}, {params, select, count, query} ->
+            {[], [], [], 0, query},
+            fn {key, {value, original_field}}, {params, select, subqueries, count, query} ->
               case AshSql.Expr.dynamic_expr(query, value, query.__ash_bindings__) do
                 {%Ecto.Query.DynamicExpr{} = dynamic, acc} ->
                   result =
                     Ecto.Query.Builder.Dynamic.partially_expand(
-                      :select,
                       query,
                       dynamic,
                       params,
+                      subqueries,
+                      %{},
                       count
                     )
 
                   expr = elem(result, 0)
                   new_params = elem(result, 1)
+                  new_subqueries = elem(result, 2)
 
                   new_count =
                     result |> Tuple.to_list() |> List.last()
 
-                  {new_params, [{key, expr} | select], new_count,
+                  {new_params, [{key, expr} | select], new_subqueries, new_count,
                    AshSql.Expr.merge_accumulator(query, acc)}
 
                 {other, acc} ->
-                  {[{other, {0, key}} | params], [{key, {:^, [], [count]}} | select], count + 1,
-                   AshSql.Expr.merge_accumulator(query, acc)}
+                  {[{other, {0, original_field}} | params], [{key, {:^, [], [count]}} | select],
+                   subqueries, count + 1, AshSql.Expr.merge_accumulator(query, acc)}
               end
             end
           )
@@ -74,6 +91,7 @@ defmodule AshSql.Atomics do
         query =
           Map.put(query, :select, %Ecto.Query.SelectExpr{
             expr: {:%{}, [], Enum.reverse(selects)},
+            subqueries: subqueries,
             params: Enum.reverse(params)
           })
 
@@ -84,6 +102,7 @@ defmodule AshSql.Atomics do
     end
   end
 
+  # sobelow_skip ["DOS.StringToAtom"]
   def query_with_atomics(
         resource,
         %{__ash_bindings__: %{atomics_in_binding: binding}} = query,
@@ -91,8 +110,7 @@ defmodule AshSql.Atomics do
         atomics,
         updating_one_changes,
         existing_set
-      )
-      when updating_one_changes == %{} do
+      ) do
     {:ok, query} =
       if is_nil(filter) do
         {:ok, query}
@@ -101,23 +119,31 @@ defmodule AshSql.Atomics do
       end
 
     {query, dynamics} =
-      Enum.reduce(atomics, {query, []}, fn {field, _expr}, {query, set} ->
+      atomics
+      |> Enum.reverse()
+      |> Enum.reduce({query, []}, fn {field, _expr}, {query, set} ->
         mapped_field = String.to_atom("__new_#{field}")
 
-        {query,
-         Keyword.put(set, field, Ecto.Query.dynamic([], field(as(^binding), ^mapped_field)))}
+        {query, [{field, Ecto.Query.dynamic([], field(as(^binding), ^mapped_field))} | set]}
+      end)
+
+    {params, set, count} =
+      updating_one_changes
+      |> Map.to_list()
+      |> Enum.reduce({[], [], 0}, fn {key, value}, {params, set, count} ->
+        {[{value, {0, key}} | params], [{key, {:^, [], [count]}} | set], count + 1}
       end)
 
     {params, set, _, query} =
       Enum.reduce(
         dynamics ++ existing_set,
-        {[], [], 0, query},
+        {params, set, count, query},
         fn {key, value}, {params, set, count, query} ->
           case AshSql.Expr.dynamic_expr(query, value, query.__ash_bindings__) do
             {%Ecto.Query.DynamicExpr{} = dynamic, acc} ->
               result =
                 Ecto.Query.Builder.Dynamic.partially_expand(
-                  :select,
+                  :update,
                   query,
                   dynamic,
                   params,
@@ -166,6 +192,8 @@ defmodule AshSql.Atomics do
         updating_one_changes,
         existing_set
       ) do
+    atomics = type_atomics(query.__ash_bindings__.sql_behaviour, resource, atomics)
+
     {:ok, query} =
       if is_nil(filter) do
         {:ok, query}
@@ -174,21 +202,23 @@ defmodule AshSql.Atomics do
       end
 
     atomics_result =
-      Enum.reduce_while(atomics, {:ok, query, []}, fn {field, expr}, {:ok, query, set} ->
+      atomics
+      |> Enum.reverse()
+      |> Enum.reduce_while({:ok, query, []}, fn {field, expr}, {:ok, query, set} ->
         attribute = Ash.Resource.Info.attribute(resource, field)
 
         type =
-          query.__ash_bindings__.sql_behaviour.parameterized_type(
-            attribute.type,
-            attribute.constraints
-          )
+          query.__ash_bindings__.sql_behaviour.storage_type(resource, attribute.name) ||
+            query.__ash_bindings__.sql_behaviour.parameterized_type(
+              attribute.type,
+              attribute.constraints
+            )
 
         case AshSql.Expr.dynamic_expr(
                query,
                expr,
                Map.merge(query.__ash_bindings__, %{
-                 location: :update,
-                 updating_field: attribute.name
+                 location: :update
                }),
                false,
                type
@@ -262,5 +292,22 @@ defmodule AshSql.Atomics do
       {:error, error} ->
         {:error, error}
     end
+  end
+
+  defp type_atomics(sql_behaviour, resource, atomics) do
+    Enum.map(atomics, fn {key, expr} ->
+      attribute = Ash.Resource.Info.attribute(resource, key)
+
+      expr =
+        case sql_behaviour.storage_type(resource, attribute.name) do
+          nil ->
+            %Ash.Query.Function.Type{arguments: [expr, attribute.type, attribute.constraints]}
+
+          _ ->
+            expr
+        end
+
+      {key, expr}
+    end)
   end
 end

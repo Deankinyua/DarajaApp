@@ -1,5 +1,5 @@
 {application,postgrex,
-             [{config_mtime,1719649741},
+             [{config_mtime,1729332000},
               {optional_applications,[jason,table]},
               {applications,[kernel,stdlib,elixir,logger,crypto,ssl,jason,
                              table,decimal,db_connection]},
@@ -83,7 +83,7 @@
                         'Elixir.String.Chars.Postgrex.Copy',
                         'Elixir.String.Chars.Postgrex.Query']},
               {registered,[]},
-              {vsn,"0.18.0"},
+              {vsn,"0.19.1"},
               {mod,{'Elixir.Postgrex.App',[]}},
               {env,[{type_server_reap_after,180000},
                     {json_library,'Elixir.Jason'}]}]}.

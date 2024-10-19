@@ -9,6 +9,7 @@ defmodule Ash.Resource.Actions.Read do
             get?: nil,
             manual: nil,
             metadata: [],
+            skip_unknown_inputs: [],
             modify_query: nil,
             multitenancy: nil,
             name: nil,
@@ -29,6 +30,7 @@ defmodule Ash.Resource.Actions.Read do
           filters: [any],
           manual: atom | {atom, Keyword.t()} | nil,
           metadata: [Ash.Resource.Actions.Metadata.t()],
+          skip_unknown_inputs: list(atom | String.t()),
           modify_query: nil | mfa,
           multitenancy: atom,
           name: atom,
@@ -107,11 +109,12 @@ defmodule Ash.Resource.Actions.Read do
       type: :pos_integer,
       doc: "The default page size to apply, if one is not supplied"
     ],
+    # Change this default in 4.0
     countable: [
       type: {:in, [true, false, :by_default]},
       doc:
         "Whether not a returned page will have a full count of all records. Use `:by_default` to do it automatically.",
-      default: false
+      default: true
     ],
     max_page_size: [
       type: :pos_integer,

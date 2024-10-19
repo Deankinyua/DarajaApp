@@ -47,9 +47,10 @@ defmodule Ecto.Schema do
   However, most commonly, structs are cast, validated and manipulated with the
   `Ecto.Changeset` module.
 
-  Note that the name of the database table does not need to correlate to your
-  module name.  For example, if you are working with a legacy database, you can
-  reference the table name when you define your schema:
+  The first argument of `schema/2` is the name of database's table, which does
+  not need to correlate to your module name (commonly referred to as the schema/schema name).
+  For example, if you are working with a legacy database, you can reference the table name
+  (`legacy_users`) when you define your schema (`User`):
 
       defmodule User do
         use Ecto.Schema
@@ -255,6 +256,7 @@ defmodule Ecto.Schema do
   `:boolean`              | `boolean`               | true, false
   `:string`               | UTF-8 encoded `string`  | "hello"
   `:binary`               | `binary`                | `<<int, int, int, ...>>`
+  `:bitstring`            | `bitstring`             | `<<_::size>>`
   `{:array, inner_type}`  | `list`                  | `[value, value, value, ...]`
   `:map`                  | `map` |
   `{:map, inner_type}`    | `map` |
@@ -266,6 +268,7 @@ defmodule Ecto.Schema do
   `:naive_datetime_usec`  | `NaiveDateTime` |
   `:utc_datetime`         | `DateTime` |
   `:utc_datetime_usec`    | `DateTime` |
+  `:duration`             | `Duration` |
 
   **Notes:**
 
@@ -291,6 +294,10 @@ defmodule Ecto.Schema do
       persisting will not. This is the same behaviour as seen in other types,
       where casting has to be done explicitly and is never performed
       implicitly when loading from or dumping to the database.
+
+    * For the `:duration` type, you may need to enable `Duration` support in
+      your adapter. For information on how to enable it in Postgrex, see their
+      [HexDocs page](https://hexdocs.pm/postgrex/readme.html#data-representation).
 
   ### Custom types
 
@@ -380,7 +387,7 @@ defmodule Ecto.Schema do
 
   Or if using MySQL:
 
-      config :mariaex, :json_library, YourLibraryOfChoice
+      config :myxql, :json_library, YourLibraryOfChoice
 
   If changing the JSON library, remember to recompile the adapter afterwards
   by cleaning the current build:
@@ -437,7 +444,7 @@ defmodule Ecto.Schema do
   * `__schema__(:embed, embed)` - Returns the embedding reflection of the given embed;
 
   * `__schema__(:read_after_writes)` - Non-virtual fields that must be read back
-    from the database after every write (insert or update);
+    from the database after every write (insert, update, and delete);
 
   * `__schema__(:autogenerate_id)` - Primary key that is auto generated on insert;
   * `__schema__(:autogenerate_fields)` - Returns a list of fields names that are auto
@@ -471,7 +478,7 @@ defmodule Ecto.Schema do
   alias Ecto.Schema.Metadata
 
   @type source :: String.t()
-  @type prefix :: String.t() | nil
+  @type prefix :: any()
   @type schema :: %{optional(atom) => any, __struct__: atom, __meta__: Metadata.t()}
   @type embedded_schema :: %{optional(atom) => any, __struct__: atom}
   @type t :: schema | embedded_schema
@@ -525,7 +532,8 @@ defmodule Ecto.Schema do
     :type,
     :where,
     :references,
-    :skip_default_validation
+    :skip_default_validation,
+    :writable
   ]
 
   @doc """
@@ -539,6 +547,11 @@ defmodule Ecto.Schema do
   Embedded schemas by default set the primary key type
   to `:binary_id` but such can be configured with the
   `@primary_key` attribute.
+
+  `belongs_to/3` associations may be defined inside of
+  embedded schemas. However, any association nested inside
+  of an embedded schema won't be persisted to the database
+  when calling `c:Ecto.Repo.insert/2` or `c:Ecto.Repo.update/2`.
   """
   defmacro embedded_schema(do: block) do
     schema(__CALLER__, nil, false, :binary_id, block)
@@ -644,7 +657,7 @@ defmodule Ecto.Schema do
           %{unquote_splicing(Macro.escape(@ecto_changeset_fields))}
         end
 
-        def __schema__(:prefix), do: unquote(prefix)
+        def __schema__(:prefix), do: unquote(Macro.escape(prefix))
         def __schema__(:source), do: unquote(source)
         def __schema__(:fields), do: unquote(Enum.map(fields, &elem(&1, 0)))
         def __schema__(:query_fields), do: unquote(Enum.map(query_fields, &elem(&1, 0)))
@@ -658,23 +671,39 @@ defmodule Ecto.Schema do
         def __schema__(:redact_fields), do: unquote(redacted_fields)
         def __schema__(:virtual_fields), do: unquote(Enum.map(virtual_fields, &elem(&1, 0)))
 
+        def __schema__(:updatable_fields),
+          do: unquote(for {name, {_, :always}} <- fields, do: name)
+
+        def __schema__(:insertable_fields),
+          do: unquote(for {name, {_, writable}} when writable != :never <- fields, do: name)
+
         def __schema__(:autogenerate_fields),
           do: unquote(Enum.flat_map(autogenerate, &elem(&1, 0)))
 
-        def __schema__(:query) do
-          %Ecto.Query{
-            from: %Ecto.Query.FromExpr{
-              source: {unquote(source), __MODULE__},
-              prefix: unquote(prefix)
+        if meta? do
+          def __schema__(:query) do
+            %Ecto.Query{
+              from: %Ecto.Query.FromExpr{
+                source: {unquote(source), __MODULE__},
+                prefix: unquote(Macro.escape(prefix))
+              }
             }
-          }
+          end
         end
 
         for clauses <-
-              Ecto.Schema.__schema__(fields, field_sources, assocs, embeds, virtual_fields),
+              Ecto.Schema.__schema__(
+                fields,
+                field_sources,
+                assocs,
+                embeds,
+                virtual_fields
+              ),
             {args, body} <- clauses do
           def __schema__(unquote_splicing(args)), do: unquote(body)
         end
+
+        :ok
       end
 
     quote do
@@ -703,7 +732,7 @@ defmodule Ecto.Schema do
 
       The default value is validated against the field's type at compilation time
       and it will raise an ArgumentError if there is a type mismatch. If you cannot
-      infer  the field's type at compilation time, you can use the
+      infer the field's type at compilation time, you can use the
       `:skip_default_validation` option on the field to skip validations.
 
       Once a default value is set, if you send changes to the changeset that
@@ -721,7 +750,7 @@ defmodule Ecto.Schema do
       A shorthand value of `true` is equivalent to `{type, :autogenerate, []}`.
 
     * `:read_after_writes` - When true, the field is always read back
-      from the database after insert and updates.
+      from the database after inserts, updates, and deletes.
 
       For relational databases, this means the RETURNING option of those
       statements is used. For this reason, MySQL does not support this
@@ -745,6 +774,12 @@ defmodule Ecto.Schema do
 
     * `:skip_default_validation` - When true, it will skip the type validation
       step at compile time.
+
+    * `:writable` - Defines when a field is allowed to be modified. Must be one of
+      `:always`, `:insert`, or `:never`. If set to `:always`, the field can be modified
+      by any repo operation. If set to `:insert`, the field can be inserted but cannot
+      be further modified, even in an upsert. If set to `:never`, the field becomes
+      read only. Defaults to `:always`.
 
   """
   defmacro field(name, type \\ :string, opts \\ []) do
@@ -793,7 +828,8 @@ defmodule Ecto.Schema do
       association, defaults to the primary key on the schema
 
     * `:through` - Allow this association to be defined in terms of existing
-      associations. Read the section on `:through` associations for more info
+      associations. Read the [section on `:through` associations](#has_many/3-has_many-has_one-through)
+      for more info
 
     * `:on_delete` - The action taken on associations when parent record
       is deleted. May be `:nothing` (default), `:nilify_all` and `:delete_all`.
@@ -826,12 +862,13 @@ defmodule Ecto.Schema do
     * `:where` - A filter for the association. See "Filtering associations" below.
       It does not apply to `:through` associations.
 
-    * `:preload_order` - Sets the default `order_by` of the association.
-      It is used when the association is preloaded.
+    * `:preload_order` - Sets the default `order_by` when preloading the association.
+      It may be a keyword list/list of fields or an MFA tuple, such as `{Mod, fun, []}`.
+      Both cases must resolve to a valid `order_by` expression.
       For example, if you set `Post.has_many :comments, preload_order: [asc: :content]`,
       whenever the `:comments` associations is preloaded,
-      the comments will be order by the `:content` field.
-      See `Ecto.Query.order_by/3` for more examples.
+      the comments will be ordered by the `:content` field.
+      See `Ecto.Query.order_by/3` to learn more about ordering expressions.
 
   ## Examples
 
@@ -1003,11 +1040,12 @@ defmodule Ecto.Schema do
   Note `:through` associations are read-only. For example, you cannot use
   `Ecto.Changeset.cast_assoc/3` to modify through associations.
   """
-  defmacro has_many(name, queryable, opts \\ []) do
-    queryable = expand_literals(queryable, __CALLER__)
+  defmacro has_many(name, schema, opts \\ []) do
+    schema = expand_literals(schema, __CALLER__)
+    opts = expand_literals(opts, __CALLER__)
 
     quote do
-      Ecto.Schema.__has_many__(__MODULE__, unquote(name), unquote(queryable), unquote(opts))
+      Ecto.Schema.__has_many__(__MODULE__, unquote(name), unquote(schema), unquote(opts))
     end
   end
 
@@ -1079,11 +1117,11 @@ defmodule Ecto.Schema do
       [post] = Repo.all(from(p in Post, where: p.id == 42, preload: :permalink))
       post.permalink #=> %Permalink{...}
   """
-  defmacro has_one(name, queryable, opts \\ []) do
-    queryable = expand_literals(queryable, __CALLER__)
+  defmacro has_one(name, schema, opts \\ []) do
+    schema = expand_literals(schema, __CALLER__)
 
     quote do
-      Ecto.Schema.__has_one__(__MODULE__, unquote(name), unquote(queryable), unquote(opts))
+      Ecto.Schema.__has_one__(__MODULE__, unquote(name), unquote(schema), unquote(opts))
     end
   end
 
@@ -1286,11 +1324,11 @@ defmodule Ecto.Schema do
 
   See `many_to_many/3` for more information on this particular approach.
   """
-  defmacro belongs_to(name, queryable, opts \\ []) do
-    queryable = expand_literals(queryable, __CALLER__)
+  defmacro belongs_to(name, schema, opts \\ []) do
+    schema = expand_literals(schema, __CALLER__)
 
     quote do
-      Ecto.Schema.__belongs_to__(__MODULE__, unquote(name), unquote(queryable), unquote(opts))
+      Ecto.Schema.__belongs_to__(__MODULE__, unquote(name), unquote(schema), unquote(opts))
     end
   end
 
@@ -1375,7 +1413,7 @@ defmodule Ecto.Schema do
     * `:preload_order` - Sets the default `order_by` when preloading the association.
       It may be a keyword list/list of fields or an MFA tuple, such as `{Mod, fun, []}`.
       Both cases must resolve to a valid `order_by` expression. See `Ecto.Query.order_by/3`
-      to learn more about about ordering expressions.
+      to learn more about ordering expressions.
       See the [preload order](#many_to_many/3-preload-order) section below to learn how
       this option can be utilized
 
@@ -1582,12 +1620,12 @@ defmodule Ecto.Schema do
         {:error, changeset} -> # Handle the error
       end
   """
-  defmacro many_to_many(name, queryable, opts \\ []) do
-    queryable = expand_literals(queryable, __CALLER__)
+  defmacro many_to_many(name, schema, opts \\ []) do
+    schema = expand_literals(schema, __CALLER__)
     opts = expand_literals(opts, __CALLER__)
 
     quote do
-      Ecto.Schema.__many_to_many__(__MODULE__, unquote(name), unquote(queryable), unquote(opts))
+      Ecto.Schema.__many_to_many__(__MODULE__, unquote(name), unquote(schema), unquote(opts))
     end
   end
 
@@ -1612,8 +1650,8 @@ defmodule Ecto.Schema do
 
     * `:primary_key` - The `:primary_key` option can be used with the same arguments
       as `@primary_key` (see the [Schema attributes](https://hexdocs.pm/ecto/Ecto.Schema.html#module-schema-attributes)
-      section for more info). Primary keys are automatically set up for  embedded  schemas as well,
-      defaulting  to  `{:id,  :binary_id, autogenerate:   true}`.
+      section for more info). Primary keys are automatically set up for embedded schemas as well,
+      defaulting to  `{:id,  :binary_id, autogenerate:   true}`.
 
     * `:on_replace` - The action taken on associations when the embed is
       replaced when casting or manipulating parent changeset. May be
@@ -1627,6 +1665,12 @@ defmodule Ecto.Schema do
     * `:load_in_query` - When false, the field will not be loaded when
       selecting the whole struct in a query, such as `from p in Post, select: p`.
       Defaults to `true`.
+
+    * `:defaults_to_struct` - When true, the field will default to the initialized
+      struct instead of nil, the same you would get from something like `%Order.Item{}`.
+      One important thing is that if the underlying data is explicitly nil when loading
+      the schema, it will still be loaded as nil, similar to how `:default` works in fields.
+      Defaults to `false`.
 
   ## Examples
 
@@ -1725,7 +1769,7 @@ defmodule Ecto.Schema do
   Ecto provides this guarantee for all built-in types.
 
   When decoding, if a key exists in the database not defined in the
-  schema, it'll be ignored. If a field exists in the schema thats not
+  schema, it'll be ignored. If a field exists in the schema that's not
   in the database, it's value will be `nil`.
   """
   defmacro embeds_one(name, schema, opts \\ [])
@@ -1777,10 +1821,10 @@ defmodule Ecto.Schema do
   maps are represented as JSON which allows Ecto to choose what works best).
 
   The embedded may or may not have a primary key. Ecto uses the primary keys
-  to detect if an embed is being updated or not. If a primary is not present
-  and you still want the list of embeds to be updated, `:on_replace` must be
-  set to `:delete`, forcing all current embeds to be deleted and replaced by
-  new ones whenever a new list of embeds is set.
+  to detect if an embed is being updated or not. If a primary key is not
+  present and you still want the list of embeds to be updated, `:on_replace`
+  must be set to `:delete`, forcing all current embeds to be deleted and
+  replaced by new ones whenever a new list of embeds is set.
 
   For encoding and decoding of embeds, please read the docs for
   `embeds_one/3`.
@@ -1885,8 +1929,8 @@ defmodule Ecto.Schema do
         end
       end
 
-  Primary keys are automatically set up for  embedded  schemas as well,
-  defaulting  to  `{:id,  :binary_id, autogenerate:   true}`. You can
+  Primary keys are automatically set up for embedded schemas as well,
+  defaulting to  `{:id,  :binary_id, autogenerate:   true}`. You can
   customize it by passing a `:primary_key` option with the same arguments
   as `@primary_key` (see the [Schema attributes](https://hexdocs.pm/ecto/Ecto.Schema.html#module-schema-attributes)
   section for more info).
@@ -2023,6 +2067,7 @@ defmodule Ecto.Schema do
   defp define_field(mod, name, type, opts) do
     virtual? = opts[:virtual] || false
     pk? = opts[:primary_key] || false
+    writable = opts[:writable] || :always
     put_struct_field(mod, name, Keyword.get(opts, :default))
 
     if Keyword.get(opts, :redact, false) do
@@ -2062,6 +2107,10 @@ defmodule Ecto.Schema do
         raise ArgumentError, "cannot mark the same field as autogenerate and read_after_writes"
       end
 
+      if writable != :always && gen do
+        raise ArgumentError, "autogenerated fields must always be writable"
+      end
+
       if pk? do
         Module.put_attribute(mod, :ecto_primary_keys, name)
       end
@@ -2070,7 +2119,7 @@ defmodule Ecto.Schema do
         Module.put_attribute(mod, :ecto_query_fields, {name, type})
       end
 
-      Module.put_attribute(mod, :ecto_fields, {name, type})
+      Module.put_attribute(mod, :ecto_fields, {name, {type, writable}})
     end
   end
 
@@ -2197,11 +2246,19 @@ defmodule Ecto.Schema do
     Module.put_attribute(mod, :ecto_changeset_fields, {name, {:assoc, struct}})
   end
 
-  @valid_embeds_one_options [:on_replace, :source, :load_in_query]
+  @valid_embeds_one_options [:on_replace, :source, :load_in_query, :defaults_to_struct]
 
   @doc false
   def __embeds_one__(mod, name, schema, opts) when is_atom(schema) do
     check_options!(opts, @valid_embeds_one_options, "embeds_one/3")
+
+    opts =
+      if Keyword.get(opts, :defaults_to_struct) do
+        Keyword.put(opts, :default, schema.__schema__(:loaded))
+      else
+        opts
+      end
+
     embed(mod, :one, name, schema, opts)
   end
 
@@ -2271,7 +2328,7 @@ defmodule Ecto.Schema do
   @doc false
   def __schema__(fields, field_sources, assocs, embeds, virtual_fields) do
     load =
-      for {name, type} <- fields do
+      for {name, {type, _writable}} <- fields do
         if alias = field_sources[name] do
           {name, {:source, alias, type}}
         else
@@ -2280,17 +2337,17 @@ defmodule Ecto.Schema do
       end
 
     dump =
-      for {name, type} <- fields do
-        {name, {field_sources[name] || name, type}}
+      for {name, {type, writable}} <- fields do
+        {name, {field_sources[name] || name, type, writable}}
       end
 
     field_sources_quoted =
-      for {name, _type} <- fields do
+      for {name, {_type, _writable}} <- fields do
         {[:field_source, name], field_sources[name] || name}
       end
 
     types_quoted =
-      for {name, type} <- fields do
+      for {name, {type, _writable}} <- fields do
         {[:type, name], Macro.escape(type)}
       end
 
@@ -2347,7 +2404,7 @@ defmodule Ecto.Schema do
 
     Module.put_attribute(mod, :ecto_changeset_fields, {name, {:embed, struct}})
     Module.put_attribute(mod, :ecto_embeds, {name, struct})
-    define_field(mod, name, {:parameterized, Ecto.Embedded, struct}, opts)
+    define_field(mod, name, {:parameterized, {Ecto.Embedded, struct}}, opts)
   end
 
   defp put_struct_field(mod, name, assoc) do
@@ -2381,7 +2438,7 @@ defmodule Ecto.Schema do
     end
   end
 
-  defp check_options!({:parameterized, _, _}, _opts, _valid, _fun_arity) do
+  defp check_options!({:parameterized, _}, _opts, _valid, _fun_arity) do
     :ok
   end
 
@@ -2455,7 +2512,9 @@ defmodule Ecto.Schema do
     Module.put_attribute(mod, :ecto_autogenerate, {[name], mfa})
   end
 
-  defp store_type_autogenerate!(mod, name, source, {:parameterized, typemod, params} = type, pk?) do
+  defp store_type_autogenerate!(mod, name, source, {:parameterized, typemod_params} = type, pk?) do
+    {typemod, params} = typemod_params
+
     cond do
       store_autogenerate_id!(mod, name, source, type, pk?) ->
         :ok

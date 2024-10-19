@@ -102,6 +102,8 @@ defmodule Ecto.Adapters.SQL do
           optional(atom) => any
         }
 
+  @type query_params :: [term] | %{(atom | String.t()) => term}
+
   @doc false
   defmacro __using__(opts) do
     quote do
@@ -335,7 +337,7 @@ defmodule Ecto.Adapters.SQL do
 
   """
   @spec to_sql(:all | :update_all | :delete_all, Ecto.Repo.t(), Ecto.Queryable.t()) ::
-          {String.t(), [term]}
+          {String.t(), query_params}
   def to_sql(kind, repo, queryable) do
     case Ecto.Adapter.Queryable.prepare_query(kind, repo, queryable) do
       {{:cached, _update, _reset, {_id, cached}}, params} ->
@@ -387,7 +389,7 @@ defmodule Ecto.Adapters.SQL do
 
   Adapter          | Supported opts
   ---------------- | --------------
-  Postgrex         | `analyze`, `verbose`, `costs`, `settings`, `buffers`, `timing`, `summary`, `format`
+  Postgrex         | `analyze`, `verbose`, `costs`, `settings`, `buffers`, `timing`, `summary`, `format`, `plan`
   MyXQL            | `format`
 
   All options except `format` are boolean valued and default to `false`.
@@ -400,11 +402,18 @@ defmodule Ecto.Adapters.SQL do
     * Postgrex: `:map`, `:yaml` and `:text`
     * MyXQL: `:map` and `:text`
 
+  The `:plan` option in Postgrex can take the values `:custom` or `:fallback_generic`. When `:custom`
+  is specified, the explain plan generated will consider the specific values of the query parameters
+  that are supplied. When using `:fallback_generic`, the specific values of the query parameters will
+  be ignored. `:fallback_generic` does not use PostgreSQL's built-in support for a generic explain
+  plan (available as of PostgreSQL 16), but instead uses a special implementation that works for PostgreSQL
+  versions 12 and above. Defaults to `:custom`.
+
   Any other value passed to `opts` will be forwarded to the underlying adapter query function, including
   shared Repo options such as `:timeout`. Non built-in adapters may have specific behaviour and you should
   consult their documentation for more details.
 
-  For version compatiblity, please check your database's documentation:
+  For version compatibility, please check your database's documentation:
 
     * _Postgrex_: [PostgreSQL doc](https://www.postgresql.org/docs/current/sql-explain.html).
     * _MyXQL_: [MySQL doc](https://dev.mysql.com/doc/refman/8.0/en/explain.html).
@@ -471,8 +480,22 @@ defmodule Ecto.Adapters.SQL do
     disconnect_all(Ecto.Adapter.lookup_meta(repo), interval, opts)
   end
 
-  def disconnect_all(%{pid: pid} = _adapter_meta, interval, opts) do
-    DBConnection.disconnect_all(pid, interval, opts)
+  def disconnect_all(adapter_meta, interval, opts) do
+    case adapter_meta do
+      %{partition_supervisor: {name, count}} ->
+        1..count
+        |> Enum.map(fn i ->
+          Task.async(fn ->
+            DBConnection.disconnect_all({:via, PartitionSupervisor, {name, i}}, interval, opts)
+          end)
+        end)
+        |> Task.await_many(:infinity)
+
+        :ok
+
+      %{pid: pool} ->
+        DBConnection.disconnect_all(pool, interval, opts)
+    end
   end
 
   @doc """
@@ -503,7 +526,7 @@ defmodule Ecto.Adapters.SQL do
       [%{rows: [[42]], num_rows: 1}]
 
   """
-  @spec stream(Ecto.Repo.t(), String.t(), [term], Keyword.t()) :: Enum.t()
+  @spec stream(Ecto.Repo.t(), String.t(), query_params, Keyword.t()) :: Enum.t()
   def stream(repo, sql, params \\ [], opts \\ []) do
     repo
     |> Ecto.Adapter.lookup_meta()
@@ -513,7 +536,12 @@ defmodule Ecto.Adapters.SQL do
   @doc """
   Same as `query/4` but raises on invalid queries.
   """
-  @spec query!(pid() | Ecto.Repo.t() | Ecto.Adapter.adapter_meta(), iodata, [term], Keyword.t()) ::
+  @spec query!(
+          pid() | Ecto.Repo.t() | Ecto.Adapter.adapter_meta(),
+          iodata,
+          query_params,
+          Keyword.t()
+        ) ::
           query_result
   def query!(repo, sql, params \\ [], opts \\ []) do
     case query(repo, sql, params, opts) do
@@ -551,7 +579,12 @@ defmodule Ecto.Adapters.SQL do
       {:ok, %{rows: [[42]], num_rows: 1}}
 
   """
-  @spec query(pid() | Ecto.Repo.t() | Ecto.Adapter.adapter_meta(), iodata, [term], Keyword.t()) ::
+  @spec query(
+          pid() | Ecto.Repo.t() | Ecto.Adapter.adapter_meta(),
+          iodata,
+          query_params,
+          Keyword.t()
+        ) ::
           {:ok, query_result} | {:error, Exception.t()}
   def query(repo, sql, params \\ [], opts \\ [])
 
@@ -566,7 +599,12 @@ defmodule Ecto.Adapters.SQL do
   @doc """
   Same as `query_many/4` but raises on invalid queries.
   """
-  @spec query_many!(Ecto.Repo.t() | Ecto.Adapter.adapter_meta(), iodata, [term], Keyword.t()) ::
+  @spec query_many!(
+          Ecto.Repo.t() | Ecto.Adapter.adapter_meta(),
+          iodata,
+          query_params,
+          Keyword.t()
+        ) ::
           [query_result]
   def query_many!(repo, sql, params \\ [], opts \\ []) do
     case query_many(repo, sql, params, opts) do
@@ -607,7 +645,7 @@ defmodule Ecto.Adapters.SQL do
   @spec query_many(
           pid() | Ecto.Repo.t() | Ecto.Adapter.adapter_meta(),
           iodata,
-          [term],
+          query_params,
           Keyword.t()
         ) :: {:ok, [query_result]} | {:error, Exception.t()}
   def query_many(repo, sql, params \\ [], opts \\ [])
@@ -622,7 +660,7 @@ defmodule Ecto.Adapters.SQL do
 
   defp sql_call(adapter_meta, callback, args, params, opts) do
     %{pid: pool, telemetry: telemetry, sql: sql, opts: default_opts} = adapter_meta
-    conn = get_conn_or_pool(pool)
+    conn = get_conn_or_pool(pool, adapter_meta)
     opts = with_log(telemetry, params, opts ++ default_opts)
     args = args ++ [params, opts]
     apply(sql, callback, [conn | args])
@@ -638,7 +676,7 @@ defmodule Ecto.Adapters.SQL do
   end
 
   @doc """
-  Check if the given `table` exists.
+  Checks if the given `table` exists.
 
   Returns `true` if the `table` exists in the `repo`, otherwise `false`.
   The table is checked against the current database/schema in the connection.
@@ -678,7 +716,7 @@ defmodule Ecto.Adapters.SQL do
   def format_table(%{columns: columns, rows: rows}) do
     column_widths =
       [columns | rows]
-      |> List.zip()
+      |> Enum.zip()
       |> Enum.map(&Tuple.to_list/1)
       |> Enum.map(fn column_with_rows ->
         column_with_rows |> Enum.map(&binary_length/1) |> Enum.max()
@@ -709,7 +747,7 @@ defmodule Ecto.Adapters.SQL do
   defp cells(items, widths) do
     cell =
       [items, widths]
-      |> List.zip()
+      |> Enum.zip()
       |> Enum.map(fn {item, width} -> [?|, " ", format_item(item, width), " "] end)
 
     [cell | [?|]]
@@ -803,6 +841,8 @@ defmodule Ecto.Adapters.SQL do
   @pool_opts [:timeout, :pool, :pool_size] ++
                [:queue_target, :queue_interval, :ownership_timeout, :repo]
 
+  @valid_log_levels ~w(false debug info notice warning error critical alert emergency)a
+
   @doc false
   def init(connection, driver, config) do
     unless Code.ensure_loaded?(connection) do
@@ -821,24 +861,12 @@ defmodule Ecto.Adapters.SQL do
 
     log = Keyword.get(config, :log, :debug)
 
-    valid_log_levels = [
-      false,
-      :debug,
-      :info,
-      :notice,
-      :warning,
-      :error,
-      :critical,
-      :alert,
-      :emergency
-    ]
-
-    if log not in valid_log_levels do
+    if log not in @valid_log_levels do
       raise """
       invalid value for :log option in Repo config
 
       The accepted values for the :log option are:
-      #{Enum.map_join(valid_log_levels, ", ", &inspect/1)}
+      #{Enum.map_join(@valid_log_levels, ", ", &inspect/1)}
 
       See https://hexdocs.pm/ecto/Ecto.Repo.html for more information.
       """
@@ -848,33 +876,47 @@ defmodule Ecto.Adapters.SQL do
     telemetry_prefix = Keyword.fetch!(config, :telemetry_prefix)
     telemetry = {config[:repo], log, telemetry_prefix ++ [:query]}
 
-    config = adapter_config(config)
-    opts = Keyword.take(config, @pool_opts)
-    meta = %{telemetry: telemetry, sql: connection, stacktrace: stacktrace, opts: opts}
-    {:ok, connection.child_spec(config), meta}
-  end
+    {name, config} = Keyword.pop(config, :name, config[:repo])
+    {pool_count, config} = Keyword.pop(config, :pool_count, 1)
+    {pool, config} = pool_config(config)
+    child_spec = connection.child_spec(config)
 
-  defp adapter_config(config) do
-    if Keyword.has_key?(config, :pool_timeout) do
-      message = """
-      :pool_timeout option no longer has an effect and has been replaced with an improved queuing system.
-      See \"Queue config\" in DBConnection.start_link/2 documentation for more information.
-      """
+    meta = %{
+      telemetry: telemetry,
+      sql: connection,
+      stacktrace: stacktrace,
+      opts: Keyword.take(config, @pool_opts)
+    }
 
-      IO.warn(message)
-    end
+    if pool_count > 1 do
+      if name == nil do
+        raise ArgumentError, "the option :pool_count requires a :name"
+      end
 
-    config
-    |> Keyword.delete(:name)
-    |> Keyword.update(:pool, DBConnection.ConnectionPool, &normalize_pool/1)
-  end
+      if pool == DBConnection.Ownership do
+        raise ArgumentError, "the option :pool_count does not work with the SQL sandbox"
+      end
 
-  defp normalize_pool(pool) do
-    if Code.ensure_loaded?(pool) && function_exported?(pool, :unboxed_run, 2) do
-      DBConnection.Ownership
+      name = Module.concat(name, PartitionSupervisor)
+      partition_opts = [name: name, child_spec: child_spec, partitions: pool_count]
+      child_spec = Supervisor.child_spec({PartitionSupervisor, partition_opts}, [])
+      {:ok, child_spec, Map.put(meta, :partition_supervisor, {name, pool_count})}
     else
-      pool
+      {:ok, child_spec, meta}
     end
+  end
+
+  defp pool_config(config) do
+    {pool, config} = Keyword.pop(config, :pool, DBConnection.ConnectionPool)
+
+    pool =
+      if Code.ensure_loaded?(pool) && function_exported?(pool, :unboxed_run, 2) do
+        DBConnection.Ownership
+      else
+        pool
+      end
+
+    {pool, [pool: pool] ++ config}
   end
 
   @doc false
@@ -1361,11 +1403,20 @@ defmodule Ecto.Adapters.SQL do
       end
     end
 
-    apply(DBConnection, fun, [get_conn_or_pool(pool), callback, opts])
+    apply(DBConnection, fun, [get_conn_or_pool(pool, adapter_meta), callback, opts])
   end
 
-  defp get_conn_or_pool(pool) do
-    Process.get(key(pool), pool)
+  defp get_conn_or_pool(pool, adapter_meta) do
+    case :erlang.get(key(pool)) do
+      :undefined ->
+        case adapter_meta do
+          %{partition_supervisor: {name, _}} -> {:via, PartitionSupervisor, {name, self()}}
+          _ -> pool
+        end
+
+      conn ->
+        conn
+    end
   end
 
   defp get_conn(pool) do

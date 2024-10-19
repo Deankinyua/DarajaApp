@@ -1,5 +1,5 @@
 {application,phoenix_ecto,
-             [{config_mtime,1719649741},
+             [{config_mtime,1729332000},
               {optional_applications,[phoenix_html,postgrex]},
               {applications,[kernel,stdlib,elixir,logger,phoenix_html,ecto,
                              plug,postgrex]},
@@ -21,6 +21,6 @@
                         'Elixir.Plug.Exception.Phoenix.Ecto.StorageNotCreatedError',
                         'Elixir.Plug.Exception.Postgrex.Error']},
               {registered,[]},
-              {vsn,"4.6.1"},
+              {vsn,"4.6.2"},
               {mod,{'Elixir.Phoenix.Ecto',[]}},
               {env,[{exclude_ecto_exceptions_from_plug,[]}]}]}.

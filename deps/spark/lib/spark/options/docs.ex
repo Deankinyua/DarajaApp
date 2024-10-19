@@ -160,6 +160,9 @@ defmodule Spark.Options.Docs do
   defp get_raw_type_str({:protocol, module}),
     do: "value that implements the `#{inspect(module)}` protocol"
 
+  defp get_raw_type_str({:impl, module}),
+    do: "module for which the `#{inspect(module)}` protocol is implemented"
+
   defp get_raw_type_str({:struct, struct_type}), do: "struct of type `#{inspect(struct_type)}`"
   defp get_raw_type_str(:struct), do: "struct"
   defp get_raw_type_str({:spark, module}), do: "`#{inspect(module)}`"
@@ -199,6 +202,7 @@ defmodule Spark.Options.Docs do
 
   def dsl_docs_type({:behaviour, _mod}), do: "module"
   def dsl_docs_type({:protocol, protocol}), do: "an `#{inspect(protocol)}` value"
+  def dsl_docs_type({:impl, protocol}), do: "a module implementing `#{inspect(protocol)}`"
   def dsl_docs_type({:spark, mod}), do: dsl_docs_type({:behaviour, mod})
   def dsl_docs_type({:spark_behaviour, mod}), do: dsl_docs_type({:behaviour, mod})
 
@@ -295,7 +299,10 @@ defmodule Spark.Options.Docs do
 
   def dsl_docs_type({:one_of, values}), do: dsl_docs_type({:in, values})
   def dsl_docs_type({:in, values}), do: Enum.map_join(values, " | ", &inspect/1)
-  def dsl_docs_type({:or, subtypes}), do: Enum.map_join(subtypes, " | ", &dsl_docs_type/1)
+
+  def dsl_docs_type({:or, subtypes}),
+    do: subtypes |> Enum.map(&dsl_docs_type/1) |> Enum.uniq() |> Enum.join(" | ")
+
   def dsl_docs_type({:list, subtype}), do: "list(#{dsl_docs_type(subtype)})"
   def dsl_docs_type(:quoted), do: "any"
 
@@ -327,14 +334,22 @@ defmodule Spark.Options.Docs do
     [head | tail]
   end
 
-  def schema_to_spec(schema) do
-    schema
-    |> Enum.map(fn {key, opt_schema} ->
+  def schema_specs(schema, or_nil? \\ false) do
+    Enum.map(schema, fn {key, opt_schema} ->
       typespec =
         Keyword.get_lazy(opt_schema, :type_spec, fn -> type_to_spec(opt_schema[:type]) end)
 
-      quote do: {unquote(key), unquote(typespec)}
+      if or_nil? && !opt_schema[:required] && is_nil(opt_schema[:default]) do
+        quote do: {unquote(key), unquote(typespec) | nil}
+      else
+        quote do: {unquote(key), unquote(typespec)}
+      end
     end)
+  end
+
+  def schema_to_spec(schema) do
+    schema
+    |> schema_specs()
     |> unionize_quoted()
   end
 
@@ -421,8 +436,12 @@ defmodule Spark.Options.Docs do
           quote(do: term())
         end
 
-      {:in, _choices} ->
-        quote(do: [term()])
+      {one_of, choices} when one_of in [:in, :one_of] ->
+        if Enum.all?(choices, &is_atom(&1)) do
+          unionize_quoted(choices)
+        else
+          quote(do: term())
+        end
 
       {:custom, _mod, _fun, _args} ->
         quote(do: term())
@@ -430,7 +449,7 @@ defmodule Spark.Options.Docs do
       {:list, subtype} ->
         quote(do: [unquote(type_to_spec(subtype))])
 
-      {one_of, subtypes} when one_of in [:one_of, :or] ->
+      {:or, subtypes} ->
         subtypes |> Enum.map(&type_to_spec/1) |> unionize_quoted()
 
       {:struct, _struct_name} ->
@@ -448,14 +467,14 @@ defmodule Spark.Options.Docs do
       {:tagged_tuple, tag, subtype} ->
         quote do: {unquote(tag), unquote(type_to_spec(subtype))}
 
-      {tag, _} when tag in [:behaviour, :spark_behaviour, :protocol, :spark] ->
+      {tag, _} when tag in [:behaviour, :spark_behaviour, :protocol, :spark, :impl] ->
         quote(do: module())
 
       {:spark_function_behaviour, _, _} ->
-        quote(do: module())
+        quote(do: module() | {module(), Keyword.t()})
 
       {:spark_function_behaviour, _, _, _} ->
-        quote(do: module())
+        quote(do: module() | {module(), Keyword.t()})
 
       {:spark_type, _, _} ->
         quote(do: module)
@@ -514,6 +533,17 @@ defmodule Spark.Options.Docs do
   defp unionize_quoted(specs) do
     specs
     |> Enum.reverse()
+    |> Enum.uniq_by(&remove_meta/1)
     |> Enum.reduce(&quote(do: unquote(&1) | unquote(&2)))
+  end
+
+  defp remove_meta(code) do
+    Macro.prewalk(code, fn
+      {a, _b, c} ->
+        {a, [], c}
+
+      other ->
+        other
+    end)
   end
 end

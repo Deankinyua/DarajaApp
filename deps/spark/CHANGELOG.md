@@ -5,6 +5,412 @@ See [Conventional Commits](Https://conventionalcommits.org) for commit guideline
 
 <!-- changelog -->
 
+## [v2.2.35](https://github.com/ash-project/spark/compare/v2.2.34...v2.2.35) (2024-10-17)
+
+
+
+
+### Bug Fixes:
+
+* generate DSL documentation without a colon in the file name
+
+## [v2.2.34](https://github.com/ash-project/spark/compare/v2.2.33...v2.2.34) (2024-10-15)
+
+
+
+
+### Improvements:
+
+* more and better typespecs for `Spark.Options.Validator`
+
+## [v2.2.33](https://github.com/ash-project/spark/compare/v2.2.32...v2.2.33) (2024-10-13)
+
+
+
+
+### Bug Fixes:
+
+* include optional arguments as entity builders in spark.formatter
+
+## [v2.2.32](https://github.com/ash-project/spark/compare/v2.2.31...v2.2.32) (2024-10-07)
+
+
+
+
+### Improvements:
+
+* disable introspection section in cheatsheets if target module is not documented (#111)
+
+## [v2.2.31](https://github.com/ash-project/spark/compare/v2.2.30...v2.2.31) (2024-09-27)
+
+
+
+
+### Improvements:
+
+* add :impl option type (#110)
+
+## [v2.2.30](https://github.com/ash-project/spark/compare/v2.2.29...v2.2.30) (2024-09-24)
+
+
+
+
+### Improvements:
+
+* raise multiple DslErrors at once
+
+## [v2.2.29](https://github.com/ash-project/spark/compare/v2.2.28...v2.2.29) (2024-09-15)
+
+
+
+
+### Improvements:
+
+* add `Spark.Igniter.find` for search a DSL and all fragments
+
+## [v2.2.28](https://github.com/ash-project/spark/compare/v2.2.27...v2.2.28) (2024-09-14)
+
+
+
+
+### Bug Fixes:
+
+* support latest elixir_ls changes
+
+### Improvements:
+
+* support fragments when finding DSL options
+
+## [v2.2.27](https://github.com/ash-project/spark/compare/v2.2.26...v2.2.27) (2024-09-12)
+
+
+
+
+### Bug Fixes:
+
+* properly display unknown vs required option for missing keys
+
+## [v2.2.26](https://github.com/ash-project/spark/compare/v2.2.25...v2.2.26) (2024-09-10)
+
+
+
+
+### Bug Fixes:
+
+* undo change supporting non keyword lists in spark options
+
+## [v2.2.25](https://github.com/ash-project/spark/compare/v2.2.24...v2.2.25) (2024-09-10)
+
+
+
+
+### Improvements:
+
+* `:spark_behaviour` does not need to require opts be a list
+
+## [v2.2.24](https://github.com/ash-project/spark/compare/v2.2.23...v2.2.24) (2024-09-06)
+
+
+
+
+### Bug Fixes:
+
+* remove experimental module/function docs ð¤¦
+
+* don't assume all atoms could be module names
+
+### Improvements:
+
+* Don't just all the values when there may be a large number of values. (#106)
+
+## [v2.2.23](https://github.com/ash-project/spark/compare/v2.2.22...v2.2.23) (2024-08-29)
+
+
+
+
+### Improvements:
+
+* add `get_option` igniter tool
+
+* add `take` option to `to_options`
+
+## [v2.2.22](https://github.com/ash-project/spark/compare/v2.2.21...v2.2.22) (2024-08-20)
+
+
+
+
+### Bug Fixes:
+
+* Macro.escape persisted keys
+
+* properly handle {:error, error} when validating opts
+
+### Improvements:
+
+* add `fetch_persisted`
+
+* add options type to option validators
+
+## [v2.2.21](https://github.com/ash-project/spark/compare/v2.2.20...v2.2.21) (2024-08-14)
+
+
+
+
+### Bug Fixes:
+
+* add `private?` to options spec, and fix incorrect error output
+
+## [v2.2.20](https://github.com/ash-project/spark/compare/v2.2.19...v2.2.20) (2024-08-14)
+
+
+
+
+### Bug Fixes:
+
+* show proper list of known options
+
+* validate schema at compile time
+
+## [v2.2.19](https://github.com/ash-project/spark/compare/v2.2.18...v2.2.19) (2024-08-13)
+
+
+
+
+### Bug Fixes:
+
+* cast default values
+
+## [v2.2.18](https://github.com/ash-project/spark/compare/v2.2.17...v2.2.18) (2024-08-13)
+
+
+
+
+### Bug Fixes:
+
+* proper validation error on unknown optiosn
+
+### Improvements:
+
+* show `| nil` in struct type when optional
+
+## [v2.2.17](https://github.com/ash-project/spark/compare/v2.2.16...v2.2.17) (2024-08-13)
+
+
+
+
+### Bug Fixes:
+
+* handle schemas w/ duplicate keys
+
+### Improvements:
+
+* add `docs/1` to options validators
+
+## [v2.2.16](https://github.com/ash-project/spark/compare/v2.2.15...v2.2.16) (2024-08-13)
+
+
+
+
+### Bug Fixes:
+
+* properly validate defaults
+
+## [v2.2.15](https://github.com/ash-project/spark/compare/v2.2.14...v2.2.15) (2024-08-13)
+
+
+
+
+### Improvements:
+
+* support getting an options list back out
+
+* add `to_options/1` to options validators
+
+* store which keys were provided in option validators
+
+## [v2.2.14](https://github.com/ash-project/spark/compare/v2.2.13...v2.2.14) (2024-08-13)
+
+
+
+
+### Bug Fixes:
+
+* small fixes/cleanups for optiosn validations
+
+## [v2.2.13](https://github.com/ash-project/spark/compare/v2.2.12...v2.2.13) (2024-08-13)
+
+
+
+
+### Improvements:
+
+* support define_deprecated_access? to help migrating to options validators
+
+## [v2.2.12](https://github.com/ash-project/spark/compare/v2.2.11...v2.2.12) (2024-08-13)
+
+
+
+
+### Improvements:
+
+* optimize options validations (some)
+
+* introduce new `Spark.Options.Validator`
+
+## [v2.2.11](https://github.com/ash-project/spark/compare/v2.2.10...v2.2.11) (2024-07-30)
+
+
+
+
+### Bug Fixes:
+
+* (maybe temporarily) disable parallel compilation to resolve compile time issues
+
+* ensure that sections are a list in `prepend_to_section_order/3`
+
+## [v2.2.10](https://github.com/ash-project/spark/compare/v2.2.9...v2.2.10) (2024-07-18)
+
+
+
+
+### Improvements:
+
+* add docs & specs, and `Spark.Igniter.has_extension/5`
+
+## [v2.2.9](https://github.com/ash-project/spark/compare/v2.2.8...v2.2.9) (2024-07-17)
+
+
+
+
+### Bug Fixes:
+
+* hide hidden docs & auto_set_fields in options tables
+
+## [v2.2.8](https://github.com/ash-project/spark/compare/v2.2.7...v2.2.8) (2024-07-15)
+
+
+
+
+### Improvements:
+
+* add `Spark.Igniter.prepend_to_section_order`
+
+## [v2.2.7](https://github.com/ash-project/spark/compare/v2.2.6...v2.2.7) (2024-07-02)
+
+
+
+
+### Improvements:
+
+* leverage latest igniter changes, update igniter tooling
+
+## [v2.2.6](https://github.com/ash-project/spark/compare/v2.2.5...v2.2.6) (2024-06-28)
+
+
+
+
+### Improvements:
+
+* simplify & optimize import conflict resolution
+
+* optimize and make idiomatic the entity building macros
+
+* more idiomatic and performant section body & entity option macros
+
+* optimize and make idiomatic the section option setter
+
+## [v2.2.5](https://github.com/ash-project/spark/compare/v2.2.4...v2.2.5) (2024-06-25)
+
+
+
+
+### Improvements:
+
+* allow `%__MODULE__{}` to be used in escaped functions
+
+## [v2.2.4](https://github.com/ash-project/spark/compare/v2.2.3...v2.2.4) (2024-06-20)
+
+
+
+
+### Improvements:
+
+* support igniter 0.2.0
+
+## [v2.2.3](https://github.com/ash-project/spark/compare/v2.2.2...v2.2.3) (2024-06-17)
+
+
+
+
+### Bug Fixes:
+
+* properly support optional arguments before required ones
+
+## [v2.2.2](https://github.com/ash-project/spark/compare/v2.2.1...v2.2.2) (2024-06-17)
+
+
+
+
+### Bug Fixes:
+
+* support optional arguments at the beginning of args list
+
+## [v2.2.1](https://github.com/ash-project/spark/compare/v2.2.0...v2.2.1) (2024-06-14)
+
+
+
+
+### Improvements:
+
+* update to latest igniter, sourceror
+
+## [v2.2.0](https://github.com/ash-project/spark/compare/v2.1.24...v2.2.0) (2024-06-13)
+
+
+
+
+### Features:
+
+* `mix spark.install` (a.k.a `mix igniter.install spark`)
+
+### Improvements:
+
+* `Spark.Igniter`, utilities for patching Spark DSL files
+
+* handle `nil` `module` in dsl error more gracefully
+
+## [v2.1.24](https://github.com/ash-project/spark/compare/v2.1.23...v2.1.24) (2024-06-10)
+
+
+
+
+### Bug Fixes:
+
+* ensure that options modules from sections are unimported
+
+* ensure that unimports for sections are properly scoped
+
+* ensure atom before check compiled (#99)
+
+## [v2.1.23](https://github.com/ash-project/spark/compare/v2.1.22...v2.1.23) (2024-06-07)
+
+
+
+
+### Bug Fixes:
+
+* ensure that we infer the proper arity from multi-clause functions with `when`
+
+* make shortdoc for cheat sheats mix task shorter (#95)
+
+### Improvements:
+
+* Use term_to_iovec instead of term_to_binary (#97)
+
+* Make opts merge silent when values are identical (#96)
+
+* hide `env` from persisted output in compile time
+
 ## [v2.1.22](https://github.com/ash-project/spark/compare/v2.1.21...v2.1.22) (2024-05-14)
 
 

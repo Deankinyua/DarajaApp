@@ -78,11 +78,19 @@ if Code.ensure_loaded?(Tds) do
 
     def to_constraints(_, _opts), do: []
 
-    defp prepare_params(params) do
+    def prepare_params(params) do
+      unless is_list(params) do
+        raise ArgumentError, "expected params to be a list, got: #{inspect(params)}"
+      end
+
       {params, _} =
         Enum.map_reduce(params, 1, fn param, acc ->
-          {value, type} = prepare_param(param)
-          {%Tds.Parameter{name: "@#{acc}", value: value, type: type}, acc + 1}
+          case prepare_param(param) do
+            {value, type} -> {%Tds.Parameter{name: "@#{acc}", value: value, type: type}, acc + 1}
+            %Tds.Parameter{name: ""} = param -> {%{param | name: "@#{acc}"}, acc + 1}
+            %Tds.Parameter{name: <<"@", _::binary>>} = param -> {param, acc}
+            _ -> error!(nil, "Tds parameter names must begin with @")
+          end
         end)
 
       params
@@ -107,6 +115,15 @@ if Code.ensure_loaded?(Tds) do
 
     defp prepare_param(%Time{} = value) do
       {value, :time}
+    end
+
+    defp prepare_param(%Tds.Parameter{type: nil, value: value} = param) do
+      {_value, type} = prepare_param(value)
+      %{param | type: type}
+    end
+
+    defp prepare_param(%Tds.Parameter{} = param) do
+      param
     end
 
     defp prepare_param(%{__struct__: module} = _value) do
@@ -136,7 +153,7 @@ if Code.ensure_loaded?(Tds) do
 
     @parent_as __MODULE__
     alias Ecto.Query
-    alias Ecto.Query.{BooleanExpr, JoinExpr, QueryExpr, WithExpr}
+    alias Ecto.Query.{BooleanExpr, ByExpr, JoinExpr, QueryExpr, WithExpr}
 
     @impl true
     def all(query, as_prefix \\ []) do
@@ -377,10 +394,10 @@ if Code.ensure_loaded?(Tds) do
     end
 
     defp distinct(nil, _sources, _query), do: []
-    defp distinct(%QueryExpr{expr: true}, _sources, _query), do: "DISTINCT "
-    defp distinct(%QueryExpr{expr: false}, _sources, _query), do: []
+    defp distinct(%ByExpr{expr: true}, _sources, _query), do: "DISTINCT "
+    defp distinct(%ByExpr{expr: false}, _sources, _query), do: []
 
-    defp distinct(%QueryExpr{expr: exprs}, _sources, query) when is_list(exprs) do
+    defp distinct(%ByExpr{expr: exprs}, _sources, query) when is_list(exprs) do
       error!(
         query,
         "DISTINCT with multiple columns is not supported by MsSQL. " <>
@@ -571,8 +588,8 @@ if Code.ensure_loaded?(Tds) do
     defp group_by(%{group_bys: group_bys} = query, sources) do
       [
         " GROUP BY "
-        | Enum.map_intersperse(group_bys, ", ", fn %QueryExpr{expr: expr} ->
-            Enum.map_intersperse(expr, ", ", &expr(&1, sources, query))
+        | Enum.map_intersperse(group_bys, ", ", fn %ByExpr{expr: expr} ->
+            Enum.map_intersperse(expr, ", ", &top_level_expr(&1, sources, query))
           end)
       ]
     end
@@ -582,14 +599,14 @@ if Code.ensure_loaded?(Tds) do
     defp order_by(%{order_bys: order_bys} = query, sources) do
       [
         " ORDER BY "
-        | Enum.map_intersperse(order_bys, ", ", fn %QueryExpr{expr: expr} ->
+        | Enum.map_intersperse(order_bys, ", ", fn %ByExpr{expr: expr} ->
             Enum.map_intersperse(expr, ", ", &order_by_expr(&1, sources, query))
           end)
       ]
     end
 
     defp order_by_expr({dir, expr}, sources, query) do
-      str = expr(expr, sources, query)
+      str = top_level_expr(expr, sources, query)
 
       case dir do
         :asc -> str
@@ -695,6 +712,21 @@ if Code.ensure_loaded?(Tds) do
       [?(, expr(expr, sources, query), ?)]
     end
 
+    defp top_level_expr(%Ecto.SubQuery{query: query}, sources, parent_query) do
+      combinations =
+        Enum.map(query.combinations, fn {type, combination_query} ->
+          {type, put_in(combination_query.aliases[@parent_as], {parent_query, sources})}
+        end)
+
+      query = put_in(query.combinations, combinations)
+      query = put_in(query.aliases[@parent_as], {parent_query, sources})
+      [all(query, subquery_as_prefix(sources))]
+    end
+
+    defp top_level_expr(other, sources, parent_query) do
+      expr(other, sources, parent_query)
+    end
+
     # :^ - represents parameter ix is index number
     defp expr({:^, [], [idx]}, _sources, _query) do
       "@#{idx + 1}"
@@ -774,15 +806,8 @@ if Code.ensure_loaded?(Tds) do
       error!(query, "Tds adapter does not support aggregate filters")
     end
 
-    defp expr(%Ecto.SubQuery{query: query}, sources, parent_query) do
-      combinations =
-        Enum.map(query.combinations, fn {type, combination_query} ->
-          {type, put_in(combination_query.aliases[@parent_as], {parent_query, sources})}
-        end)
-
-      query = put_in(query.combinations, combinations)
-      query = put_in(query.aliases[@parent_as], {parent_query, sources})
-      [?(, all(query, subquery_as_prefix(sources)), ?)]
+    defp expr(%Ecto.SubQuery{} = subquery, sources, parent_query) do
+      [?(, top_level_expr(subquery, sources, parent_query), ?)]
     end
 
     defp expr({:fragment, _, [kw]}, _sources, query) when is_list(kw) or tuple_size(kw) == 3 do
@@ -860,7 +885,13 @@ if Code.ensure_loaded?(Tds) do
           [op_to_binary(left, sources, query), op | op_to_binary(right, sources, query)]
 
         {:fun, fun} ->
-          [fun, ?(, modifier, Enum.map_intersperse(args, ", ", &expr(&1, sources, query)), ?)]
+          [
+            fun,
+            ?(,
+            modifier,
+            Enum.map_intersperse(args, ", ", &top_level_expr(&1, sources, query)),
+            ?)
+          ]
       end
     end
 
@@ -1439,10 +1470,13 @@ if Code.ensure_loaded?(Tds) do
     defp column_change(statement_prefix, _table, {:remove, name, _type, _opts}),
       do: [statement_prefix, "DROP COLUMN ", quote_name(name)]
 
+    defp column_change(statement_prefix, table, {:remove_if_exists, column_name, _}),
+      do: column_change(statement_prefix, table, {:remove_if_exists, column_name})
+
     defp column_change(
            statement_prefix,
            %{name: table, prefix: prefix},
-           {:remove_if_exists, column_name, _}
+           {:remove_if_exists, column_name}
          ) do
       [
         [
@@ -1571,7 +1605,7 @@ if Code.ensure_loaded?(Tds) do
         reference_name(ref, table, name),
         " FOREIGN KEY (#{quote_names(current_columns)})",
         " REFERENCES ",
-        quote_table(ref.prefix || table.prefix, ref.table),
+        quote_table(Keyword.get(ref.options, :prefix, table.prefix), ref.table),
         "(#{quote_names(reference_columns)})",
         reference_on_delete(ref.on_delete),
         reference_on_update(ref.on_update)

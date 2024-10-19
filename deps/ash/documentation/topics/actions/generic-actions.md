@@ -21,7 +21,7 @@ A generic action declares its arguments, return type, and implementation, as ill
 > ```elixir
 > action :schedule_job do
 >   argument :job_name, :string, allow_nil?: false
->   run fn input ->
+>   run fn input, _ ->
 >     # Schedule the job
 >     :ok
 >   end
@@ -71,6 +71,7 @@ end
 > instance or instances of the resource. It's natural to assume that you can
 > set your action's return type to the name of your resource. This won't work
 > as resources do not define a type, unless they are embedded. In embedded resources, this won't work because the module is still being compiled, so referencing yourself as a type causes a compile error. Instead, use the `:struct` type and the `instance_of` constraint, like so:
+>
 > ```elixir
 > action :get, :struct do
 >   constraints instance_of: __MODULE__
@@ -78,3 +79,49 @@ end
 >   run # ...
 > end
 > ```
+
+## Calling Generic Actions
+
+To execute a generic action in Ash, follow these steps:
+
+1. **Prepare the action input:** Use `Ash.ActionInput.for_action/4` to specify the resource, the action and its arguments.
+2. **Run the action:** Use `Ash.run_action/2` to execute the action with the prepared input.
+
+### Example Usage
+
+Consider an `Ash.Resource` with the action `:say_hello`:
+
+```elixir
+action :say_hello, :string do
+  argument :name, :string, allow_nil?: false
+
+  run fn input, _ ->
+    {:ok, "Hello: #{input.arguments.name}"}
+  end
+end
+```
+
+Call this action:
+
+```elixir
+{:ok, greeting} = Resource
+|> Ash.ActionInput.for_action(:say_hello, %{name: "Alice"})
+|> Ash.run_action()
+
+IO.puts(greeting)  # Output: Hello: Alice
+```
+
+### Using Code Interface
+
+You can also use [Code Interfaces](documentation/topics/resources/code-interfaces.md) to call actions:
+
+Given a definition like:
+
+```elixir
+define :say_hello, args: [:name]
+```
+
+```elixir
+{:ok, greeting} = Resource.say_hello("Alice")
+greeting = Resource.say_hello!("Alice")
+```

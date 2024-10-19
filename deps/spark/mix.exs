@@ -1,7 +1,7 @@
 defmodule Spark.MixProject do
   use Mix.Project
 
-  @version "2.1.22"
+  @version "2.2.35"
 
   @description "Generic tooling for building DSLs"
 
@@ -75,7 +75,8 @@ defmodule Spark.MixProject do
         Tutorials: ~r/documentation\/tutorials/
       ],
       groups_for_modules: [
-        "DSLs and Extensions": ~r/(^Spark.Dsl|^Spark.OptionsHelpers|^Spark.Options)/,
+        "DSLs and Extensions": ~r/^Spark.Dsl/,
+        Options: ~r/^Spark.Options/,
         Errors: [Spark.Error.DslError],
         Internals: ~r/.*/
       ]
@@ -97,17 +98,24 @@ defmodule Spark.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:sourceror, "~> 1.0"},
+      {:sourceror, "~> 1.2"},
+      # in 3.x, make this dependency optional
       {:jason, "~> 1.4"},
+      {:igniter, "~> 0.2 and >= 0.3.64"},
       # Dev/Test dependencies
-      {:ex_doc, "~> 0.32.0", only: [:dev, :test], runtime: false},
+      {:benchee, "~> 1.3", only: [:dev, :test]},
+      {:eflame, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.32", only: [:dev, :test], runtime: false},
       {:ex_check, "~> 0.12", only: [:dev, :test]},
       {:credo, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:dialyxir, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:sobelow, ">= 0.0.0", only: [:dev, :test], runtime: false},
       {:git_ops, "~> 2.5", only: [:dev, :test]},
       {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
-      {:elixir_sense, github: "elixir-lsp/elixir_sense", only: [:test, :dev, :docs]},
+      {:elixir_sense,
+       github: "zachdaniel/elixir_sense",
+       only: [:dev, :test, :docs],
+       ref: "572c81c4046e12857b734abc28aa14b7d1f6f595"},
       {:mix_audit, ">= 0.0.0", only: [:dev, :test], runtime: false}
     ]
   end

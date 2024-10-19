@@ -4,18 +4,15 @@ defmodule Postgrex.Extensions.TimestampTZ do
   use Postgrex.BinaryExtension, send: "timestamptz_send"
 
   @gs_epoch NaiveDateTime.to_gregorian_seconds(~N[2000-01-01 00:00:00.0]) |> elem(0)
-
   @gs_unix_epoch NaiveDateTime.to_gregorian_seconds(~N[1970-01-01 00:00:00.0]) |> elem(0)
   @us_epoch (@gs_epoch - @gs_unix_epoch) * 1_000_000
 
-  @gs_max elem(NaiveDateTime.to_gregorian_seconds(~N[9999-01-01 00:00:00.0]), 0) - @gs_unix_epoch
-  @us_max @gs_max * 1_000_000
-
-  @gs_min elem(NaiveDateTime.to_gregorian_seconds(~N[-4713-01-01 00:00:00.0]), 0) - @gs_unix_epoch
-  @us_min @gs_min * 1_000_000
-
   @plus_infinity 9_223_372_036_854_775_807
   @minus_infinity -9_223_372_036_854_775_808
+  @default_precision 6
+  # -1: user did not specify precision
+  # nil: coming from a super type that does not pass modifier for sub-type
+  @unspecified_precision [-1, nil]
 
   def init(opts), do: Keyword.get(opts, :allow_infinite_timestamps, false)
 
@@ -33,36 +30,48 @@ defmodule Postgrex.Extensions.TimestampTZ do
   def decode(infinity?) do
     quote location: :keep do
       <<8::int32(), microsecs::int64()>> ->
-        unquote(__MODULE__).microsecond_to_elixir(microsecs, unquote(infinity?))
+        unquote(__MODULE__).microsecond_to_elixir(microsecs, var!(mod), unquote(infinity?))
     end
   end
 
   ## Helpers
 
   def encode_elixir(%DateTime{utc_offset: 0, std_offset: 0} = datetime) do
-    case DateTime.to_unix(datetime, :microsecond) do
-      microsecs when microsecs in @us_min..@us_max ->
-        <<8::int32(), microsecs - @us_epoch::int64()>>
-
-      _ ->
-        raise ArgumentError, "#{inspect(datetime)} is not in the year range -4713..9999"
-    end
+    microsecs = DateTime.to_unix(datetime, :microsecond)
+    <<8::int32(), microsecs - @us_epoch::int64()>>
   end
 
   def encode_elixir(%DateTime{} = datetime) do
     raise ArgumentError, "#{inspect(datetime)} is not in UTC"
   end
 
-  def microsecond_to_elixir(@plus_infinity, infinity?) do
+  def microsecond_to_elixir(@plus_infinity, _precision, infinity?) do
     if infinity?, do: :inf, else: raise_infinity("infinity")
   end
 
-  def microsecond_to_elixir(@minus_infinity, infinity?) do
+  def microsecond_to_elixir(@minus_infinity, _precision, infinity?) do
     if infinity?, do: :"-inf", else: raise_infinity("-infinity")
   end
 
-  def microsecond_to_elixir(microsecs, _infinity) do
-    DateTime.from_unix!(microsecs + @us_epoch, :microsecond)
+  def microsecond_to_elixir(microsecs, precision, _infinity) do
+    split(microsecs, precision)
+  end
+
+  defp split(microsecs, precision) when microsecs < 0 and rem(microsecs, 1_000_000) != 0 do
+    secs = div(microsecs, 1_000_000) - 1
+    microsecs = 1_000_000 + rem(microsecs, 1_000_000)
+    split(secs, microsecs, precision)
+  end
+
+  defp split(microsecs, precision) do
+    secs = div(microsecs, 1_000_000)
+    microsecs = rem(microsecs, 1_000_000)
+    split(secs, microsecs, precision)
+  end
+
+  defp split(secs, microsecs, precision) do
+    precision = if precision in @unspecified_precision, do: @default_precision, else: precision
+    DateTime.from_gregorian_seconds(secs + @gs_epoch, {microsecs, precision})
   end
 
   defp raise_infinity(type) do

@@ -5,7 +5,9 @@ defmodule Ash.Query.Function.If do
   use Ash.Query.Function, name: :if, no_inspect?: true
   import Ash.Expr, only: [expr?: 1]
 
-  def args, do: [[:boolean, :any], [:boolean, :any, :any]]
+  def args, do: [[:boolean, :any], [:boolean, :any, :same]]
+
+  def returns, do: [:same, :same]
 
   def evaluate_nil_inputs?, do: true
 
@@ -113,7 +115,7 @@ defmodule Ash.Query.Function.If do
               end
 
             conds ->
-              conds = [{condition, when_true} | conds ++ [{true, when_true}]]
+              conds = [{condition, when_true} | conds ++ [{true, final}]]
 
               concat(
                 [

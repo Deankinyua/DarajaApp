@@ -15,7 +15,7 @@ Welcome! This is the package for integrating [Phoenix Framework](https://www.pho
 Add `ash_phoenix` to your list of dependencies in `mix.exs`:
 
 ```elixir
-{:ash_phoenix, "~> 2.0.2"}
+{:ash_phoenix, "~> 2.1.6"}
 ```
 
 ## Whats in the box?
@@ -27,7 +27,6 @@ Add `ash_phoenix` to your list of dependencies in `mix.exs`:
 - `AshPhoenix.SubdomainPlug` - A plug to determine a tenant using subdomains for multitenancy
 - `AshPhoenix.FormData.Error` - A protocol to allow errors to be rendered in forms
 - `Phoenix.HTML.Safe` implementations for `Ash.CiString`, `Ash.NotLoaded` and `Decimal`
-- `AshPhoenix.SubdomainPlug` for multitenant subdomain-based applications.
 - `mix ash_phoenix.gen.live` for generating liveview modules
 - `mix ash_phoenix.gen.html` for generating controllers and views
 

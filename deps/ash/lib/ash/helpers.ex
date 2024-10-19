@@ -1,6 +1,8 @@
 defmodule Ash.Helpers do
   @moduledoc false
 
+  require Logger
+
   @dialyzer {:nowarn_function, {:unwrap_or_raise!, 2}}
 
   @spec try_compile(term) :: :ok
@@ -286,7 +288,7 @@ defmodule Ash.Helpers do
     if page && page != [] && !Map.get(action, :pagination) do
       {:error,
        Ash.Error.to_error_class(
-         Ash.Error.Invalid.PaginationNotSupported.exception(
+         Ash.Error.Invalid.ActionRequiresPagination.exception(
            resource: query.resource,
            action: action
          )
@@ -407,12 +409,12 @@ defmodule Ash.Helpers do
           ] do
       domain = Ash.Helpers.get_domain(subject, opts)
 
-      expanded =
-        if not is_nil(subject) do
-          "\n\n#{inspect(subject)}"
-        end
-
       if !domain do
+        expanded =
+          if not is_nil(subject) do
+            "\n\n#{inspect(subject)}"
+          end
+
         raise(
           ArgumentError,
           """
@@ -440,11 +442,30 @@ defmodule Ash.Helpers do
     domain
   end
 
+  def get_domain(%input_struct{resource: resource}, opts)
+      when input_struct in [Ash.Query, Ash.Changeset, Ash.ActionInput] do
+    get_domain(resource, opts)
+  end
+
   def get_domain([record | _], opts) do
     get_domain(record, opts)
   end
 
+  def get_domain({%input_struct{} = input, _}, opts)
+      when input_struct in [Ash.Query, Ash.Changeset, Ash.ActionInput] do
+    get_domain(input, opts)
+  end
+
+  def get_domain({%input_struct{} = input, _, _}, opts)
+      when input_struct in [Ash.Query, Ash.Changeset, Ash.ActionInput] do
+    get_domain(input, opts)
+  end
+
   def get_domain({%resource{}, _}, opts) do
+    get_domain(resource, opts)
+  end
+
+  def get_domain({%resource{}, _, _}, opts) do
     get_domain(resource, opts)
   end
 
@@ -497,7 +518,8 @@ defmodule Ash.Helpers do
 
   defp domain_from_resource(resource) do
     if Ash.Resource.Info.resource?(resource) || (is_map(resource) and not is_struct(resource)) do
-      Ash.Resource.Info.domain(resource)
+      Ash.Resource.Info.domain(resource) ||
+        Ash.Actions.Helpers.maybe_embedded_domain(resource)
     end
   end
 
@@ -607,5 +629,22 @@ defmodule Ash.Helpers do
     def redact(value), do: value
   else
     def redact(_value), do: "**redacted**"
+  end
+
+  @spec verify_stream_options(options :: Keyword.t()) :: :ok
+  def verify_stream_options(options) do
+    with true <- Keyword.get(options, :return_stream?, false),
+         false <- Keyword.get(options, :return_notifications?, false),
+         false <- Keyword.get(options, :return_records?, false),
+         false <- Keyword.get(options, :return_errors?, false),
+         false <- Keyword.get(options, :return_nothing?, false) do
+      Logger.warning("""
+      Bulk action was called with :return_stream? set to true, but no other :return_*? options were set.
+      You probably want to set :return_notifications?, :return_records?, or :return_errors? as well.
+      To disable this message, set :return_nothing? to true.\
+      """)
+    end
+
+    :ok
   end
 end

@@ -3,7 +3,7 @@ defmodule Ash.Resource.Change.AfterAction do
   use Ash.Resource.Change
 
   @doc false
-  @spec change(Ash.Changeset.t(), keyword, Ash.Resource.Change.context()) :: Ash.Changeset.t()
+  @impl true
   def change(changeset, opts, context) do
     Ash.Changeset.after_action(
       changeset,
@@ -13,4 +13,11 @@ defmodule Ash.Resource.Change.AfterAction do
       prepend?: opts[:prepend?]
     )
   end
+
+  # we had to remove this. We can't be sure that the change function won't access
+  # `changeset.data`, so cannot do this automatically
+  # @impl true
+  # def atomic(changeset, opts, context) do
+  #   {:ok, change(changeset, opts, context)}
+  # end
 end

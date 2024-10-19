@@ -2,7 +2,7 @@ defmodule EctoSQL.MixProject do
   use Mix.Project
 
   @source_url "https://github.com/elixir-ecto/ecto_sql"
-  @version "3.11.2"
+  @version "3.12.1"
   @adapters ~w(pg myxql tds)
 
   def project do
@@ -76,7 +76,7 @@ defmodule EctoSQL.MixProject do
     if path = System.get_env("ECTO_PATH") do
       {:ecto, path: path}
     else
-      {:ecto, "~> 3.11.0"}
+      {:ecto, "~> 3.12"}
     end
   end
 
@@ -84,7 +84,7 @@ defmodule EctoSQL.MixProject do
     if path = System.get_env("POSTGREX_PATH") do
       {:postgrex, path: path}
     else
-      {:postgrex, "~> 0.16 or ~> 1.0", optional: true}
+      {:postgrex, "~> 0.19 or ~> 1.0", optional: true}
     end
   end
 
@@ -92,7 +92,7 @@ defmodule EctoSQL.MixProject do
     if path = System.get_env("MYXQL_PATH") do
       {:myxql, path: path}
     else
-      {:myxql, "~> 0.6.0", optional: true}
+      {:myxql, "~> 0.7", optional: true}
     end
   end
 
