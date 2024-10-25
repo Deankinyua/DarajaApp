@@ -15,7 +15,7 @@ defmodule ExampleWeb.ShopLive.Index do
       </:actions>
     </.header>
 
-    <Table.table class="w-full">
+    <Table.table class="w-full border-4 border-red-600">
       <Table.table_head class="rounded-t-md border-b-[1px]">
         <Table.table_row class="hover:bg-tremor-background-muted dark:hover:bg-dark-tremor-background-muted">
           <Table.table_cell>
@@ -24,7 +24,11 @@ defmodule ExampleWeb.ShopLive.Index do
             </Text.text>
           </Table.table_cell>
 
-          <Table.table_cell></Table.table_cell>
+          <Table.table_cell>
+            <Text.text class="font-semibold text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
+              Actions
+            </Text.text>
+          </Table.table_cell>
         </Table.table_row>
       </Table.table_head>
 
@@ -103,12 +107,20 @@ defmodule ExampleWeb.ShopLive.Index do
     {:noreply, stream_insert(socket, :outlets, shop)}
   end
 
-  @impl true
-  def handle_event("delete", %{"id" => id}, socket) do
-    shop = Ash.get!(Example.Outlet.Shop, id, actor: socket.assigns.current_user)
-    Ash.destroy!(shop, actor: socket.assigns.current_user)
+  # @impl true
+  # def handle_event("delete", %{"id" => id}, socket) do
+  #   shop = Ash.get!(Example.Outlet.Shop, id, actor: socket.assigns.current_user)
+  #   Ash.destroy!(shop, actor: socket.assigns.current_user)
 
-    {:noreply, stream_delete(socket, :outlets, shop)}
+  #   {:noreply, stream_delete(socket, :outlets, shop)}
+  # end
+
+  @impl true
+  def handle_event("delete", %{"outlet_id" => id}, socket) do
+    outlet = Ash.get!(Example.Outlet.Shop, id)
+    Ash.destroy!(outlet)
+
+    {:noreply, stream_delete(socket, :outlets, outlet)}
   end
 end
 
