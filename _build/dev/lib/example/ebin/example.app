@@ -66,6 +66,7 @@
                         'Elixir.ExampleWeb.Router.Helpers',
                         'Elixir.ExampleWeb.ShopLive.FormComponent',
                         'Elixir.ExampleWeb.ShopLive.Index',
+                        'Elixir.ExampleWeb.ShopLive.RowComponent',
                         'Elixir.ExampleWeb.ShopLive.Show',
                         'Elixir.ExampleWeb.SignInPage',
                         'Elixir.ExampleWeb.Telemetry',

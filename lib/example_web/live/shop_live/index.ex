@@ -1,6 +1,8 @@
 defmodule ExampleWeb.ShopLive.Index do
   use ExampleWeb, :live_view
 
+  alias Tremorx.Components.Table
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -13,30 +15,38 @@ defmodule ExampleWeb.ShopLive.Index do
       </:actions>
     </.header>
 
-    <.table
-      id="outlets"
-      rows={@streams.outlets}
-      row_click={fn {_id, shop} -> JS.navigate(~p"/outlets/#{shop}") end}
-    >
-      <:col :let={{_id, shop}} label="Name"><%= shop.name %></:col>
+    <Table.table class="w-full">
+      <Table.table_head class="rounded-t-md border-b-[1px]">
+        <Table.table_row class="hover:bg-tremor-background-muted dark:hover:bg-dark-tremor-background-muted">
+          <Table.table_cell>
+            <Text.text class="font-semibold text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
+              Name
+            </Text.text>
+          </Table.table_cell>
 
-      <:action :let={{_id, shop}}>
-        <div class="sr-only">
-          <.link navigate={~p"/outlets/#{shop}"}>Show</.link>
-        </div>
+          <Table.table_cell></Table.table_cell>
+        </Table.table_row>
+      </Table.table_head>
 
-        <.link patch={~p"/outlets/#{shop}/edit"}>Edit</.link>
-      </:action>
-
-      <:action :let={{id, shop}}>
-        <.link
-          phx-click={JS.push("delete", value: %{id: shop.id}) |> hide("##{id}")}
-          data-confirm="Are you sure?"
+      <Table.table_body id="table_stream_outlets" phx-update="stream" class="divide-y overflow-y-auto">
+        <Table.table_row
+          :for={{dom_id, outlet} <- @streams.outlets}
+          id={"#{dom_id}"}
+          class="group hover:bg-tremor-background-muted dark:hover:bg-dark-tremor-background-muted"
         >
-          Delete
-        </.link>
-      </:action>
-    </.table>
+          <.live_component
+            module={ExampleWeb.ShopLive.RowComponent}
+            id={dom_id}
+            outlet={outlet}
+            dom_id={dom_id}
+          >
+            <Table.table_cell>
+              <%= outlet.name %>
+            </Table.table_cell>
+          </.live_component>
+        </Table.table_row>
+      </Table.table_body>
+    </Table.table>
 
     <.modal
       :if={@live_action in [:new, :edit]}
@@ -101,3 +111,28 @@ defmodule ExampleWeb.ShopLive.Index do
     {:noreply, stream_delete(socket, :outlets, shop)}
   end
 end
+
+# <.table
+#   id="outlets"
+#   rows={@streams.outlets}
+#   row_click={fn {_id, shop} -> JS.navigate(~p"/outlets/#{shop}") end}
+# >
+#   <:col :let={{_id, shop}} label="Name"><%= shop.name %></:col>
+
+#   <:action :let={{_id, shop}}>
+#     <div class="sr-only">
+#       <.link navigate={~p"/outlets/#{shop}"}>Show</.link>
+#     </div>
+
+#     <.link patch={~p"/outlets/#{shop}/edit"}>Edit</.link>
+#   </:action>
+
+#   <:action :let={{id, shop}}>
+#     <.link
+#       phx-click={JS.push("delete", value: %{id: shop.id}) |> hide("##{id}")}
+#       data-confirm="Are you sure?"
+#     >
+#       Delete
+#     </.link>
+#   </:action>
+# </.table>
