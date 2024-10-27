@@ -7,36 +7,50 @@ defmodule ExampleWeb.RegionLive.Index do
     <.header>
       Listing Regions
       <:actions>
-        <.link patch={~p"/regions/new"}>
-          <.button>New Region</.button>
-        </.link>
+        <Button.button>
+          <.link patch={~p"/regions/new"}>
+            New Region
+          </.link>
+        </Button.button>
       </:actions>
     </.header>
 
-    <.table
-      id="regions"
-      rows={@streams.regions}
-      row_click={fn {_id, region} -> JS.navigate(~p"/regions/#{region}") end}
-    >
-      <:col :let={{_id, region}} label="Name"><%= region.name %></:col>
+    <Table.table class="w-full">
+      <Table.table_head class="rounded-t-md border-b-[1px]">
+        <Table.table_row class="hover:bg-tremor-background-muted dark:hover:bg-dark-tremor-background-muted">
+          <Table.table_cell>
+            <Text.text class="font-semibold text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
+              Name
+            </Text.text>
+          </Table.table_cell>
 
-      <:action :let={{_id, region}}>
-        <div class="sr-only">
-          <.link navigate={~p"/regions/#{region}"}>Show</.link>
-        </div>
+          <Table.table_cell>
+            <Text.text class="font-semibold text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
+              Actions
+            </Text.text>
+          </Table.table_cell>
+        </Table.table_row>
+      </Table.table_head>
 
-        <.link patch={~p"/regions/#{region}/edit"}>Edit</.link>
-      </:action>
-
-      <:action :let={{id, region}}>
-        <.link
-          phx-click={JS.push("delete", value: %{id: region.id}) |> hide("##{id}")}
-          data-confirm="Are you sure?"
+      <Table.table_body id="table_stream_regions" phx-update="stream" class="divide-y overflow-y-auto">
+        <Table.table_row
+          :for={{dom_id, region} <- @streams.regions}
+          id={"#{dom_id}"}
+          class="group hover:bg-tremor-background-muted dark:hover:bg-dark-tremor-background-muted"
         >
-          Delete
-        </.link>
-      </:action>
-    </.table>
+          <.live_component
+            module={ExampleWeb.RegionLive.RowComponent}
+            id={dom_id}
+            region={region}
+            dom_id={dom_id}
+          >
+            <Table.table_cell>
+              <%= region.name %>
+            </Table.table_cell>
+          </.live_component>
+        </Table.table_row>
+      </Table.table_body>
+    </Table.table>
 
     <.modal
       :if={@live_action in [:new, :edit]}
@@ -90,7 +104,8 @@ defmodule ExampleWeb.RegionLive.Index do
   end
 
   @impl true
-  def handle_event("delete", %{"id" => id}, socket) do
+  def handle_event("delete", %{"region_id" => id}, socket) do
+    dbg(id)
     region = Ash.get!(Example.Outlet.Region, id)
     Ash.destroy!(region)
 

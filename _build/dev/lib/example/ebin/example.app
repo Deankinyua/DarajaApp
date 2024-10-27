@@ -57,6 +57,7 @@
                         'Elixir.ExampleWeb.ProjectLive.Show',
                         'Elixir.ExampleWeb.RegionLive.FormComponent',
                         'Elixir.ExampleWeb.RegionLive.Index',
+                        'Elixir.ExampleWeb.RegionLive.RowComponent',
                         'Elixir.ExampleWeb.RegionLive.Show',
                         'Elixir.ExampleWeb.RegisterPage',
                         'Elixir.ExampleWeb.RegistryLive.FormComponent',

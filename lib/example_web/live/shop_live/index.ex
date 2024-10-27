@@ -9,13 +9,15 @@ defmodule ExampleWeb.ShopLive.Index do
     <.header>
       Listing Outlets
       <:actions>
-        <.link patch={~p"/outlets/new"}>
-          <.button>New Shop</.button>
-        </.link>
+        <Button.button>
+          <.link patch={~p"/outlets/new"}>
+            New Shop
+          </.link>
+        </Button.button>
       </:actions>
     </.header>
 
-    <Table.table class="w-full border-4 border-red-600">
+    <Table.table class="w-full">
       <Table.table_head class="rounded-t-md border-b-[1px]">
         <Table.table_row class="hover:bg-tremor-background-muted dark:hover:bg-dark-tremor-background-muted">
           <Table.table_cell>
@@ -107,14 +109,6 @@ defmodule ExampleWeb.ShopLive.Index do
     {:noreply, stream_insert(socket, :outlets, shop)}
   end
 
-  # @impl true
-  # def handle_event("delete", %{"id" => id}, socket) do
-  #   shop = Ash.get!(Example.Outlet.Shop, id, actor: socket.assigns.current_user)
-  #   Ash.destroy!(shop, actor: socket.assigns.current_user)
-
-  #   {:noreply, stream_delete(socket, :outlets, shop)}
-  # end
-
   @impl true
   def handle_event("delete", %{"outlet_id" => id}, socket) do
     outlet = Ash.get!(Example.Outlet.Shop, id)
@@ -123,28 +117,3 @@ defmodule ExampleWeb.ShopLive.Index do
     {:noreply, stream_delete(socket, :outlets, outlet)}
   end
 end
-
-# <.table
-#   id="outlets"
-#   rows={@streams.outlets}
-#   row_click={fn {_id, shop} -> JS.navigate(~p"/outlets/#{shop}") end}
-# >
-#   <:col :let={{_id, shop}} label="Name"><%= shop.name %></:col>
-
-#   <:action :let={{_id, shop}}>
-#     <div class="sr-only">
-#       <.link navigate={~p"/outlets/#{shop}"}>Show</.link>
-#     </div>
-
-#     <.link patch={~p"/outlets/#{shop}/edit"}>Edit</.link>
-#   </:action>
-
-#   <:action :let={{id, shop}}>
-#     <.link
-#       phx-click={JS.push("delete", value: %{id: shop.id}) |> hide("##{id}")}
-#       data-confirm="Are you sure?"
-#     >
-#       Delete
-#     </.link>
-#   </:action>
-# </.table>

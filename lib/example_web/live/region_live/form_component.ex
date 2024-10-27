@@ -4,26 +4,67 @@ defmodule ExampleWeb.RegionLive.FormComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div>
-      <.header>
-        <%= @title %>
-        <:subtitle>Use this form to manage region records in your database.</:subtitle>
-      </.header>
+    <section>
+      <Layout.col>
+        <Text.title class="text-xl">
+          <Text.bold><%= @title %></Text.bold>
+        </Text.title>
 
-      <.simple_form
-        for={@form}
-        id="region-form"
-        phx-target={@myself}
-        phx-change="validate"
-        phx-submit="save"
-      >
-        <.input field={@form[:name]} type="text" label="Name" />
+        <Text.subtitle color="gray">
+          Use this form to manage Region records in your database.
+        </Text.subtitle>
 
-        <:actions>
-          <.button phx-disable-with="Saving...">Save Region</.button>
-        </:actions>
-      </.simple_form>
-    </div>
+        <.form :let={f} for={@form} phx-target={@myself} phx-change="validate" phx-submit="save">
+          <%= if @form.source.type == :create do %>
+            <Layout.col class="space-y-1.5">
+              <label for="region[region_id]">
+                <Text.text class="text-tremor-content text-bold py-2">
+                  Region Name
+                </Text.text>
+              </label>
+
+              <Input.text_input
+                id="name"
+                name={@form[:name].name}
+                placeholder="Region Name..."
+                type="text"
+                field={@form[:name]}
+                value={@form[:name].value}
+                required="true"
+              />
+            </Layout.col>
+          <% end %>
+
+          <%= if @form.source.type == :update do %>
+            <Layout.col class="space-y-1.5">
+              <label for="region[region_id]">
+                <Text.text class="text-tremor-content text-bold py-2">
+                  Region Name
+                </Text.text>
+              </label>
+
+              <Input.text_input
+                id="name"
+                name={@form[:name].name}
+                placeholder="Region Name..."
+                type="text"
+                field={@form[:name]}
+                value={@form[:name].value}
+                required="true"
+              />
+            </Layout.col>
+          <% end %>
+
+          <Button.button type="submit" size="xl" class="mt-2 w-min" phx-disable-with="Saving...">
+            <%= if @form.source.type == :update do %>
+              Update Region
+            <% else %>
+              Create Region
+            <% end %>
+          </Button.button>
+        </.form>
+      </Layout.col>
+    </section>
     """
   end
 
@@ -70,3 +111,24 @@ defmodule ExampleWeb.RegionLive.FormComponent do
     assign(socket, form: to_form(form))
   end
 end
+
+# <div>
+# <.header>
+#   <%= @title %>
+#   <:subtitle>Use this form to manage region records in your database.</:subtitle>
+# </.header>
+
+# <.simple_form
+#   for={@form}
+#   id="region-form"
+#   phx-target={@myself}
+#   phx-change="validate"
+#   phx-submit="save"
+# >
+#   <.input field={@form[:name]} type="text" label="Name" />
+
+#   <:actions>
+#     <.button phx-disable-with="Saving...">Save Region</.button>
+#   </:actions>
+# </.simple_form>
+# </div>

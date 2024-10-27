@@ -1,4 +1,4 @@
-defmodule ExampleWeb.ShopLive.RowComponent do
+defmodule ExampleWeb.RegionLive.RowComponent do
   use ExampleWeb, :live_component
   alias Tremorx.Components.Button
 
@@ -11,14 +11,14 @@ defmodule ExampleWeb.ShopLive.RowComponent do
       <Table.table_cell>
         <div class="flex justify-between px-6">
           <Button.button>
-            <.link navigate={~p"/outlets/#{@outlet}/edit"}>
+            <.link navigate={~p"/regions/#{@region}/edit"}>
               Edit
             </.link>
           </Button.button>
           <Button.button>
             <.link
               phx-click={
-                JS.push("delete", value: %{dom_id: @dom_id, outlet_id: @outlet.id})
+                JS.push("delete", value: %{dom_id: @dom_id, region_id: @region.id})
                 |> hide("##{@dom_id}")
               }
               data-confirm="Are you sure?"
