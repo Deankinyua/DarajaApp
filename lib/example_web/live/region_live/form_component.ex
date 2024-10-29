@@ -111,24 +111,3 @@ defmodule ExampleWeb.RegionLive.FormComponent do
     assign(socket, form: to_form(form))
   end
 end
-
-# <div>
-# <.header>
-#   <%= @title %>
-#   <:subtitle>Use this form to manage region records in your database.</:subtitle>
-# </.header>
-
-# <.simple_form
-#   for={@form}
-#   id="region-form"
-#   phx-target={@myself}
-#   phx-change="validate"
-#   phx-submit="save"
-# >
-#   <.input field={@form[:name]} type="text" label="Name" />
-
-#   <:actions>
-#     <.button phx-disable-with="Saving...">Save Region</.button>
-#   </:actions>
-# </.simple_form>
-# </div>
