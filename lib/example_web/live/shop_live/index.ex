@@ -6,70 +6,83 @@ defmodule ExampleWeb.ShopLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <.header>
-      Listing Outlets
-      <:actions>
-        <Button.button>
-          <.link patch={~p"/outlets/new"}>
-            New Shop
-          </.link>
-        </Button.button>
-      </:actions>
-    </.header>
+    <div class="w-full h-full">
+      <Layout.flex align_items="start" class="h-screen overflow-y-hidden">
+        <%= live_render(@socket, ExampleWeb.LiveDrawer,
+          session: %{"active_tab" => "organization", "user" => "user?id=#{@current_user.id}"},
+          id: "live_drawer",
+          sticky: true
+        ) %>
+        <.header>
+          Listing Outlets
+          <:actions>
+            <Button.button>
+              <.link patch={~p"/outlets/new"}>
+                New Shop
+              </.link>
+            </Button.button>
+          </:actions>
+        </.header>
 
-    <Table.table class="w-full">
-      <Table.table_head class="rounded-t-md border-b-[1px]">
-        <Table.table_row class="hover:bg-tremor-background-muted dark:hover:bg-dark-tremor-background-muted">
-          <Table.table_cell>
-            <Text.text class="font-semibold text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
-              Name
-            </Text.text>
-          </Table.table_cell>
+        <Table.table class="w-full">
+          <Table.table_head class="rounded-t-md border-b-[1px]">
+            <Table.table_row class="hover:bg-tremor-background-muted dark:hover:bg-dark-tremor-background-muted">
+              <Table.table_cell>
+                <Text.text class="font-semibold text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
+                  Name
+                </Text.text>
+              </Table.table_cell>
 
-          <Table.table_cell>
-            <Text.text class="font-semibold text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
-              Actions
-            </Text.text>
-          </Table.table_cell>
-        </Table.table_row>
-      </Table.table_head>
+              <Table.table_cell>
+                <Text.text class="font-semibold text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
+                  Actions
+                </Text.text>
+              </Table.table_cell>
+            </Table.table_row>
+          </Table.table_head>
 
-      <Table.table_body id="table_stream_outlets" phx-update="stream" class="divide-y overflow-y-auto">
-        <Table.table_row
-          :for={{dom_id, outlet} <- @streams.outlets}
-          id={"#{dom_id}"}
-          class="group hover:bg-tremor-background-muted dark:hover:bg-dark-tremor-background-muted"
+          <Table.table_body
+            id="table_stream_outlets"
+            phx-update="stream"
+            class="divide-y overflow-y-auto"
+          >
+            <Table.table_row
+              :for={{dom_id, outlet} <- @streams.outlets}
+              id={"#{dom_id}"}
+              class="group hover:bg-tremor-background-muted dark:hover:bg-dark-tremor-background-muted"
+            >
+              <.live_component
+                module={ExampleWeb.ShopLive.RowComponent}
+                id={dom_id}
+                outlet={outlet}
+                dom_id={dom_id}
+              >
+                <Table.table_cell>
+                  <%= outlet.name %>
+                </Table.table_cell>
+              </.live_component>
+            </Table.table_row>
+          </Table.table_body>
+        </Table.table>
+
+        <.modal
+          :if={@live_action in [:new, :edit]}
+          id="shop-modal"
+          show
+          on_cancel={JS.patch(~p"/outlets")}
         >
           <.live_component
-            module={ExampleWeb.ShopLive.RowComponent}
-            id={dom_id}
-            outlet={outlet}
-            dom_id={dom_id}
-          >
-            <Table.table_cell>
-              <%= outlet.name %>
-            </Table.table_cell>
-          </.live_component>
-        </Table.table_row>
-      </Table.table_body>
-    </Table.table>
-
-    <.modal
-      :if={@live_action in [:new, :edit]}
-      id="shop-modal"
-      show
-      on_cancel={JS.patch(~p"/outlets")}
-    >
-      <.live_component
-        module={ExampleWeb.ShopLive.FormComponent}
-        id={(@shop && @shop.id) || :new}
-        title={@page_title}
-        current_user={@current_user}
-        action={@live_action}
-        shop={@shop}
-        patch={~p"/outlets"}
-      />
-    </.modal>
+            module={ExampleWeb.ShopLive.FormComponent}
+            id={(@shop && @shop.id) || :new}
+            title={@page_title}
+            current_user={@current_user}
+            action={@live_action}
+            shop={@shop}
+            patch={~p"/outlets"}
+          />
+        </.modal>
+      </Layout.flex>
+    </div>
     """
   end
 

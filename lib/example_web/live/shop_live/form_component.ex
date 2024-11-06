@@ -15,6 +15,7 @@ defmodule ExampleWeb.ShopLive.FormComponent do
         <Text.title class="text-xl">
           <Text.bold><%= @title %></Text.bold>
         </Text.title>
+
         <Layout.flex
           flex-direction="col"
           justify_content="between"
