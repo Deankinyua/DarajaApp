@@ -105,7 +105,6 @@ defmodule ExampleWeb.RegionLive.Index do
 
   @impl true
   def handle_event("delete", %{"region_id" => id}, socket) do
-    dbg(id)
     region = Ash.get!(Example.Outlet.Region, id)
     Ash.destroy!(region)
 
