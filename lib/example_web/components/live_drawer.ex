@@ -5,7 +5,6 @@ defmodule ExampleWeb.LiveDrawer do
   use ExampleWeb, :live_view
   alias ExampleWeb.NavigationComponent
 
-  alias Example.Accounts
   alias Example.Accounts.User
 
   @impl true
@@ -14,7 +13,7 @@ defmodule ExampleWeb.LiveDrawer do
 
     {:ok,
      socket
-     |> assign(:current_user, User |> Accounts.get(user_id) )
+     |> assign(:current_user, User |> Ash.get(user_id))
      |> assign(:active_tab, active_tab), layout: false}
   end
 
@@ -41,15 +40,13 @@ defmodule ExampleWeb.LiveDrawer do
   @impl true
   def handle_info(
         %{
-          event: "update_profile",
-
+          event: "update_profile"
         },
         socket
       ) do
     current_user =
       Example.Accounts.User
-      |> Example.Accounts.get(socket.assigns.current_user.id)
-
+      |> Ash.get(socket.assigns.current_user.id)
 
     {:noreply, socket |> assign(:current_user, current_user)}
   end
@@ -61,8 +58,7 @@ defmodule ExampleWeb.LiveDrawer do
       ) do
     current_user =
       Example.Accounts.User
-      |> Example.Accounts.get(socket.assigns.current_user.id)
-
+      |> Ash.get(socket.assigns.current_user.id)
 
     {:noreply, socket |> assign(:current_user, current_user)}
   end

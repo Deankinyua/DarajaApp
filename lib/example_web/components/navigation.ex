@@ -135,8 +135,6 @@ defmodule ExampleWeb.NavigationComponent do
           </.menu_item>
 
           <Layout.divider />
-
-
         </Layout.grid>
       </Layout.flex>
     </div>
