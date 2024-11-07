@@ -6,7 +6,7 @@ defmodule ExampleWeb.ShopLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="w-full h-full">
+    <div class="w-full h-full px-4 py-4">
       <Layout.flex align_items="start" class="h-screen overflow-y-hidden">
         <%= live_render(@socket, ExampleWeb.LiveDrawer,
           session: %{"active_tab" => "organization", "user" => "user?id=#{@current_user.id}"},
